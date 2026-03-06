@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Meter OCR Annotator</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+:root{
+  --bg:#0e0f11;--surface:#161719;--surface2:#1e2023;--border:#2a2c30;
+  --amber:#f5a623;--amber-glow:rgba(245,166,35,.12);
+  --red:#e05252;--green:#4caf80;--blue:#5b8dee;--purple:#a78bfa;
+  --text:#e8e9eb;--text-dim:#888c94;--text-muted:#555a63;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;min-height:100vh;display:flex;flex-direction:column;}
+
+/* HEADER */
+header{display:flex;align-items:center;justify-content:space-between;padding:11px 22px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;gap:10px;flex-wrap:wrap;}
+.logo{font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.08em;color:var(--amber);display:flex;align-items:center;gap:8px;}
+.logo-dot{width:7px;height:7px;border-radius:50%;background:var(--amber);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.header-right{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.progress-pill{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 14px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-dim);}
+.progress-pill span{color:var(--amber);font-weight:600;}
+.btn{cursor:pointer;border:none;border-radius:6px;padding:7px 16px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:500;transition:all .15s;}
+.btn-primary{background:var(--amber);color:#000;}
+.btn-primary:hover{background:#ffc043;}
+.btn-ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border);}
+.btn-ghost:hover{border-color:var(--amber);color:var(--amber);}
+
+/* USER CHIP IN HEADER */
+.user-chip{display:flex;align-items:center;gap:7px;padding:5px 12px;border-radius:20px;border:1px solid var(--border);cursor:pointer;transition:all .15s;}
+.user-chip:hover{border-color:var(--amber);}
+.user-avatar-sm{width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;font-family:'IBM Plex Mono',monospace;}
+.user-chip-name{font-size:12px;font-family:'IBM Plex Mono',monospace;color:var(--text-dim);}
+
+/* SCREENS */
+#loading-screen{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;}
+.loader-ring{width:52px;height:52px;border:4px solid var(--border);border-top-color:var(--amber);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-text{font-family:'IBM Plex Mono',monospace;font-size:14px;color:var(--text-dim);}
+#error-screen{flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:40px;}
+.error-box{background:rgba(224,82,82,.08);border:1px solid rgba(224,82,82,.3);border-radius:12px;padding:32px 40px;max-width:560px;text-align:center;}
+.error-box h2{color:var(--red);font-size:18px;margin-bottom:10px;}
+.error-box p{font-size:14px;color:var(--text-dim);line-height:1.7;}
+.error-box code{background:var(--surface2);color:var(--amber);padding:2px 6px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:13px;}
+
+/* ─── USER PICKER MODAL ─── */
+#user-modal{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px);}
+#user-modal.hidden{display:none;}
+.user-modal-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:36px 32px;width:100%;max-width:480px;}
+.user-modal-box h2{font-size:20px;font-weight:600;margin-bottom:6px;}
+.user-modal-box p{font-size:13px;color:var(--text-dim);margin-bottom:28px;line-height:1.6;}
+.user-picker-grid{display:flex;flex-direction:column;gap:10px;}
+.user-pick-btn{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--surface2);border:2px solid var(--border);border-radius:10px;cursor:pointer;transition:all .15s;text-align:left;}
+.user-pick-btn:hover{border-color:var(--border);transform:translateX(4px);}
+.user-pick-btn.selected{transform:none;}
+.pick-avatar{width:40px;height:40px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;font-family:'IBM Plex Mono',monospace;flex-shrink:0;}
+.pick-info{flex:1;}
+.pick-name{font-size:14px;font-weight:600;margin-bottom:2px;}
+.pick-stats{font-size:12px;color:var(--text-muted);font-family:'IBM Plex Mono',monospace;}
+.pick-check{width:20px;height:20px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;transition:all .15s;}
+.user-modal-confirm{margin-top:20px;width:100%;padding:13px;font-size:14px;border-radius:9px;}
+
+/* MAIN APP LAYOUT */
+#app{display:none;flex:1;flex-direction:column;}
+.app-body{flex:1;display:grid;grid-template-columns:250px 1fr 370px;min-height:0;}
+
+/* AGENCY SIDEBAR */
+.agency-sidebar{border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--surface);overflow:hidden;}
+.sidebar-header{padding:13px 15px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.sidebar-header h3{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);font-family:'IBM Plex Mono',monospace;}
+.agency-search{padding:9px 11px;border-bottom:1px solid var(--border);flex-shrink:0;}
+.agency-search input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:12px;outline:none;transition:border-color .15s;}
+.agency-search input:focus{border-color:var(--amber);}
+.agency-search input::placeholder{color:var(--text-muted);}
+.agency-list{flex:1;overflow-y:auto;padding:5px;}
+.agency-item{display:flex;align-items:center;gap:7px;padding:9px 9px;border-radius:7px;cursor:pointer;transition:background .12s;margin-bottom:1px;position:relative;}
+.agency-item:hover{background:var(--surface2);}
+.agency-item.active{background:var(--amber-glow);border:1px solid rgba(245,166,35,.3);}
+.agency-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.agency-name{font-size:12px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.agency-item.active .agency-name{color:var(--amber);}
+.agency-count{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);}
+.agency-bar{position:absolute;bottom:2px;left:9px;right:9px;height:2px;border-radius:1px;background:var(--border);overflow:hidden;}
+.agency-bar-fill{height:100%;border-radius:1px;transition:width .3s;}
+
+/* IMAGE PANEL */
+.image-panel{padding:18px 22px;display:flex;flex-direction:column;gap:13px;border-right:1px solid var(--border);overflow-y:auto;}
+.image-nav{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.nav-btn{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 14px;color:var(--text);cursor:pointer;font-size:13px;font-family:'IBM Plex Sans',sans-serif;transition:all .15s;}
+.nav-btn:hover:not(:disabled){border-color:var(--amber);color:var(--amber);}
+.nav-btn:disabled{opacity:.3;cursor:not-allowed;}
+.img-counter{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text-dim);flex:1;text-align:center;}
+.image-frame{width:100%;max-height:390px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;cursor:zoom-in;}
+.image-frame img{max-width:100%;max-height:390px;object-fit:contain;display:block;}
+.img-loading,.img-error{padding:40px;text-align:center;color:var(--text-muted);font-size:13px;}
+.img-error{color:var(--red);}
+.img-spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--amber);border-radius:50%;animation:spin .7s linear infinite;margin:auto;}
+.meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.meta-item{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:9px 13px;}
+.meta-item label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);display:block;margin-bottom:3px;}
+.meta-item value{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);word-break:break-all;}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-family:'IBM Plex Mono',monospace;font-weight:600;}
+.badge-warn{background:rgba(245,166,35,.15);color:var(--amber);}
+.badge-ok{background:rgba(76,175,128,.15);color:var(--green);}
+.badge-err{background:rgba(224,82,82,.15);color:var(--red);}
+
+/* ANALYSIS PANEL */
+.analysis-panel{padding:18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;background:var(--surface);}
+.panel-title{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);font-family:'IBM Plex Mono',monospace;padding-bottom:9px;border-bottom:1px solid var(--border);}
+
+/* VERDICT BUTTONS */
+.verdict-row{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.verdict-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:18px 10px;border-radius:10px;border:2px solid var(--border);cursor:pointer;transition:all .15s;background:var(--surface2);font-family:'IBM Plex Sans',sans-serif;user-select:none;}
+.verdict-btn .v-icon{font-size:24px;}
+.verdict-btn .v-label{font-size:12px;font-weight:600;color:var(--text);}
+.verdict-btn .v-sub{font-size:10px;color:var(--text-muted);text-align:center;}
+.verdict-btn:hover{transform:translateY(-2px);}
+.verdict-btn.correct:hover,.verdict-btn.correct.selected{border-color:var(--green);background:rgba(76,175,128,.1);}
+.verdict-btn.correct.selected .v-label{color:var(--green);}
+.verdict-btn.wrong:hover,.verdict-btn.wrong.selected{border-color:var(--red);background:rgba(224,82,82,.1);}
+.verdict-btn.wrong.selected .v-label{color:var(--red);}
+
+/* EXTRA LABELS */
+.options-list{display:flex;flex-direction:column;gap:6px;}
+.option-chip{display:flex;align-items:center;gap:9px;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;font-size:13px;color:var(--text);user-select:none;}
+.option-chip:hover{border-color:var(--amber);}
+.option-chip.selected{border-color:var(--amber);background:var(--amber-glow);color:var(--amber);}
+.option-chip .chip-icon{font-size:14px;width:18px;text-align:center;}
+.option-chip .chip-label{flex:1;font-size:12px;}
+.option-chip .chip-check{width:16px;height:16px;border:2px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;transition:all .15s;}
+.option-chip.selected .chip-check{background:var(--amber);border-color:var(--amber);color:#000;}
+.add-option-row{display:flex;gap:7px;}
+.add-option-row input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:12px;outline:none;transition:border-color .15s;}
+.add-option-row input:focus{border-color:var(--amber);}
+.add-option-row input::placeholder{color:var(--text-muted);}
+.notes-area textarea{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:9px 11px;color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:12px;resize:vertical;min-height:65px;outline:none;transition:border-color .15s;}
+.notes-area textarea:focus{border-color:var(--amber);}
+.notes-area textarea::placeholder{color:var(--text-muted);}
+.submit-bar{display:flex;gap:9px;padding-top:2px;}
+.submit-bar .btn{flex:1;padding:10px;font-size:13px;border-radius:8px;}
+
+/* STATUS BAR */
+.status-bar{padding:6px 22px;background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:11px;color:var(--text-muted);font-family:'IBM Plex Mono',monospace;flex-wrap:wrap;}
+.saved-indicator{display:flex;align-items:center;gap:5px;}
+.save-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 3s infinite;}
+.save-dot.syncing{background:var(--amber);animation:spin .6s linear infinite;}
+.save-dot.error{background:var(--red);animation:none;}
+.export-actions{display:flex;gap:10px;align-items:center;}
+.export-btn{cursor:pointer;color:var(--amber);background:none;border:none;font-family:'IBM Plex Mono',monospace;font-size:11px;transition:opacity .15s;}
+.export-btn:hover{opacity:.7;}
+
+/* SYNC BADGE */
+.sync-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:12px;font-family:'IBM Plex Mono',monospace;}
+.sync-badge.synced{background:rgba(76,175,128,.12);color:var(--green);}
+.sync-badge.pending{background:rgba(245,166,35,.12);color:var(--amber);}
+.sync-badge.fail{background:rgba(224,82,82,.12);color:var(--red);}
+
+/* TOAST */
+#toast{position:fixed;bottom:22px;right:22px;background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:8px;padding:11px 16px;font-size:13px;color:var(--text);opacity:0;transform:translateY(12px);transition:all .25s;pointer-events:none;z-index:999;}
+#toast.show{opacity:1;transform:translateY(0);}
+#toast.warn{border-left-color:var(--amber);}
+#toast.err{border-left-color:var(--red);}
+
+/* LIGHTBOX */
+#lightbox{position:fixed;inset:0;background:rgba(0,0,0,.93);z-index:500;display:flex;align-items:center;justify-content:center;cursor:zoom-out;opacity:0;transition:opacity .2s;pointer-events:none;}
+#lightbox.open{opacity:1;pointer-events:all;}
+#lightbox img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:8px;box-shadow:0 8px 60px rgba(0,0,0,.8);}
+#lightbox-close{position:fixed;top:20px;right:24px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:50%;width:36px;height:36px;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+#lightbox-close:hover{background:rgba(255,255,255,.2);}
+
+::-webkit-scrollbar{width:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+
+/* ─── COMPLETION MODAL ─── */
+#completion-modal{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:400;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(6px);}
+#completion-modal.hidden{display:none;}
+.completion-box{background:var(--surface);border:1px solid rgba(76,175,128,.4);border-radius:18px;padding:40px 36px;width:100%;max-width:460px;text-align:center;box-shadow:0 0 60px rgba(76,175,128,.12);}
+.completion-emoji{font-size:52px;margin-bottom:16px;display:block;animation:pop .4s cubic-bezier(.175,.885,.32,1.275);}
+@keyframes pop{0%{transform:scale(0)}100%{transform:scale(1)}}
+.completion-box h2{font-size:22px;font-weight:700;margin-bottom:6px;color:var(--green);}
+.completion-box .c-agency{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--amber);background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.25);border-radius:6px;padding:4px 12px;display:inline-block;margin:8px 0 16px;}
+.completion-box p{font-size:13px;color:var(--text-dim);line-height:1.7;margin-bottom:22px;}
+.completion-actions{display:flex;gap:10px;flex-direction:column;}
+.c-btn-dl{background:var(--green);color:#000;border:none;border-radius:9px;padding:13px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:8px;}
+.c-btn-dl:hover{background:#5dbd91;}
+.c-btn-close{background:transparent;color:var(--text-dim);border:1px solid var(--border);border-radius:9px;padding:11px 20px;font-size:13px;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;transition:all .15s;}
+.c-btn-close:hover{border-color:var(--amber);color:var(--amber);}
+.completion-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:22px;}
+.c-stat{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;}
+.c-stat .cv{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;}
+.c-stat .cl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-top:2px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><div class="logo-dot"></div>METER · OCR · ANNOTATOR</div>
+  <div class="header-right">
+    <div class="progress-pill" id="header-progress">
+      <span id="hp-done">0</span> / <span id="hp-total">0</span> annotated
+    </div>
+    <span id="sync-badge" class="sync-badge synced">● synced</span>
+    <!-- active user chip -->
+    <div class="user-chip" id="user-chip" onclick="showUserPicker()" title="Switch user">
+      <div class="user-avatar-sm" id="hdr-avatar" style="background:#33291a;color:#f5a623">—</div>
+      <span class="user-chip-name" id="hdr-username">Select user</span>
+    </div>
+    <a href="/dashboard" target="_blank" style="text-decoration:none">
+      <button class="btn" style="background:transparent;color:var(--purple);border:1px solid rgba(167,139,250,.3);font-size:12px;padding:6px 12px;">📊 Dashboard</button>
+    </a>
+    <button class="btn btn-ghost" style="font-size:12px;padding:6px 12px;" onclick="exportCSV()">⬇ Export</button>
+  </div>
+</header>
+
+<!-- ─── USER PICKER MODAL ─── -->
+<div id="user-modal">
+  <div class="user-modal-box">
+    <h2>👋 Who are you?</h2>
+    <p>Select your name to track your annotations. Your progress is saved to the server automatically.</p>
+    <div class="user-picker-grid" id="user-picker-grid">
+      <!-- populated by JS -->
+    </div>
+    <button class="btn btn-primary user-modal-confirm" id="user-confirm-btn" onclick="confirmUser()" disabled>Continue →</button>
+  </div>
+</div>
+
+<!-- LOADING -->
+<div id="loading-screen">
+  <div class="loader-ring"></div>
+  <div class="loader-text" id="loader-text">Connecting to server…</div>
+</div>
+
+<!-- ERROR -->
+<div id="error-screen">
+  <div class="error-box">
+    <h2>⚠️ Cannot reach server</h2>
+    <p>Make sure the Python server is running:<br/><br/>
+      <code>pip install flask pandas openpyxl</code><br/><br/>
+      <code>python server.py</code><br/><br/>
+      Then refresh this page at <code>http://localhost:5000</code>
+    </p>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <div class="app-body">
+
+    <!-- AGENCY SIDEBAR -->
+    <div class="agency-sidebar">
+      <div class="sidebar-header">
+        <h3>Agencies</h3>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted)" id="agency-total-count">—</span>
+      </div>
+      <div class="agency-search">
+        <input type="text" id="agency-filter" placeholder="Search agency…" oninput="filterAgencies()"/>
+      </div>
+      <div class="agency-list" id="agency-list"></div>
+    </div>
+
+    <!-- IMAGE PANEL -->
+    <div class="image-panel">
+      <div class="image-nav">
+        <button class="nav-btn" id="btn-prev">← Prev</button>
+        <div class="img-counter" id="img-counter">— / —</div>
+        <button class="nav-btn" id="btn-next">Next →</button>
+        <button class="nav-btn" id="btn-skip" style="margin-left:auto">Skip</button>
+      </div>
+      <div class="image-frame" id="image-frame" onclick="openLightbox()">
+        <div class="img-loading">Select an agency to begin</div>
+      </div>
+      <div class="meta-grid" id="meta-grid"></div>
+    </div>
+
+    <!-- ANALYSIS PANEL -->
+    <div class="analysis-panel">
+      <div class="panel-title">Verdict</div>
+
+      <div class="verdict-row">
+        <div class="verdict-btn correct" id="v-correct" onclick="setVerdict('actual_correct')">
+          <span class="v-icon">✅</span>
+          <span class="v-label">Actual Correct</span>
+          <span class="v-sub">OCR matches reading</span>
+        </div>
+        <div class="verdict-btn wrong" id="v-wrong" onclick="setVerdict('actual_wrong')">
+          <span class="v-icon">❌</span>
+          <span class="v-label">Actual Wrong</span>
+          <span class="v-sub">OCR is incorrect</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="panel-title" style="margin-bottom:9px">Additional Labels</div>
+        <div class="options-list" id="options-list"></div>
+        <div class="add-option-row" style="margin-top:8px">
+          <input type="text" id="new-option-input" placeholder="Add custom label…" onkeydown="if(event.key==='Enter')addCustomOption()"/>
+          <button class="btn btn-ghost" onclick="addCustomOption()" style="padding:6px 11px;font-size:12px">+</button>
+        </div>
+      </div>
+
+      <div class="notes-area">
+        <div class="panel-title" style="margin-bottom:9px">Notes (optional)</div>
+        <textarea id="notes-field" placeholder="Any additional observation…"></textarea>
+      </div>
+
+      <div class="submit-bar">
+        <button class="btn btn-ghost" id="btn-save-only">💾 Save</button>
+        <button class="btn btn-primary" id="btn-save-next">Save & Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <div class="saved-indicator"><div class="save-dot" id="save-dot"></div><span id="save-status">Ready</span></div>
+    <div style="color:var(--text-dim)" id="current-agency-label"></div>
+    <div class="export-actions">
+      <button class="export-btn" onclick="exportCSV()">⬇ Export CSV</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── AGENCY COMPLETION MODAL ─── -->
+<div id="completion-modal" class="hidden">
+  <div class="completion-box">
+    <span class="completion-emoji">🎉</span>
+    <h2>Agency Complete!</h2>
+    <div class="c-agency" id="c-agency-name">—</div>
+    <div class="completion-stats">
+      <div class="c-stat"><div class="cv" id="c-total" style="color:var(--amber)">—</div><div class="cl">Total</div></div>
+      <div class="c-stat"><div class="cv" id="c-correct" style="color:var(--green)">—</div><div class="cl">Correct</div></div>
+      <div class="c-stat"><div class="cv" id="c-wrong" style="color:var(--red)">—</div><div class="cl">Wrong</div></div>
+    </div>
+    <p>All images reviewed. The Excel report has been saved to the <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--amber)">exports/</code> folder on the server and is ready to download.</p>
+    <div class="completion-actions">
+      <button class="c-btn-dl" id="c-download-btn" onclick="downloadCompletionExcel()">
+        ⬇ Download Excel Report
+      </button>
+      <button class="c-btn-close" onclick="closeCompletionModal()">Continue to next agency →</button>
+    </div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div id="lightbox" onclick="if(event.target===this)closeLightbox()">
+  <button id="lightbox-close" onclick="closeLightbox()">✕</button>
+  <img id="lightbox-img" src="" alt="Meter image"/>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const SERVER = '';
+
+// ─── STATE ────────────────────────────────────
+// allRows is GONE — we no longer store 64k rows.
+// Instead: rowCache holds rows per agency, fetched on demand.
+const rowCache   = new Map();  // agency -> [rows]  (persists for session)
+const prefetching= new Set();  // agencies currently being prefetched
+
+let agencyMeta   = [];         // lightweight agency list (no row data)
+let localAnn     = {};         // row_id -> {label,notes,skipped}  — restored from server on boot
+let currentIdx   = 0;
+let filteredRows = [];         // rows for currently selected agency
+let selectedAgency = null;
+let customOptions  = JSON.parse(localStorage.getItem('custom_options')||'[]');
+let pendingSave  = null;
+
+// USER
+let currentUser  = null;
+let allUsers     = [];
+
+const DEFAULT_EXTRA = [
+  { key:'not_readable', label:'Not Readable', icon:'🚫' },
+  { key:'ocr_failed',   label:'OCR Failed',   icon:'🔴' },
+  { key:'partial_read', label:'Partial Read', icon:'🟡' },
+];
+
+// ─── HELPERS ──────────────────────────────────
+function initials(name){ return name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2); }
+function show(id){ const el=document.getElementById(id); if(el) el.style.display='flex'; }
+function hide(id){ const el=document.getElementById(id); if(el) el.style.display='none'; }
+function setText(id,v){ const el=document.getElementById(id); if(el) el.textContent=v; }
+
+// ─── LIGHTBOX ─────────────────────────────────
+function openLightbox(){
+  const row=filteredRows[currentIdx]; if(!row) return;
+  const url=getUrl(row); if(!url) return;
+  document.getElementById('lightbox-img').src=url;
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox(){ document.getElementById('lightbox').classList.remove('open'); }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeLightbox(); });
+
+// ─── TOAST ────────────────────────────────────
+function showToast(msg,type='ok'){
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.className='show'+(type==='warn'?' warn':type==='err'?' err':'');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.className='',2800);
+}
+
+function getUrl(row){ return row?.img_url||row?.Img_url||row?.IMG_URL||row?.image_url||''; }
+
+// ─── SYNC BADGE ───────────────────────────────
+function setSyncBadge(state){
+  const b=document.getElementById('sync-badge'), d=document.getElementById('save-dot');
+  if(state==='syncing'){ b.className='sync-badge pending'; b.textContent='● syncing'; d.className='save-dot syncing'; }
+  else if(state==='ok'){ b.className='sync-badge synced'; b.textContent='● synced'; d.className='save-dot'; setText('save-status','Saved at '+new Date().toLocaleTimeString()); }
+  else{ b.className='sync-badge fail'; b.textContent='● offline'; d.className='save-dot error'; }
+}
+
+// ─── API ──────────────────────────────────────
+async function fetchJSON(path){
+  const r=await fetch(SERVER+path);
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+
+async function postAnnotation(payload){
+  setSyncBadge('syncing');
+  try{
+    const r=await fetch(SERVER+'/api/annotate',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const data = await r.json();
+    setSyncBadge('ok');
+    return data;   // return full response, not just bool
+  }catch(e){ setSyncBadge('error'); showToast('Server save failed','err'); return null; }
+}
+
+// ─── USER PICKER ──────────────────────────────
+let pickedUserId = null;
+
+function showUserPicker(){
+  document.getElementById('user-modal').classList.remove('hidden');
+  renderUserPicker();
+}
+
+function renderUserPicker(){
+  const grid=document.getElementById('user-picker-grid');
+  grid.innerHTML=allUsers.map(u=>`
+    <div class="user-pick-btn" id="pick-${u.id}" onclick="pickUser('${u.id}')"
+         style="${pickedUserId===u.id?`border-color:${u.color};background:${u.color}18`:''}" >
+      <div class="pick-avatar" style="background:${u.color}22;color:${u.color}">${initials(u.name)}</div>
+      <div class="pick-info">
+        <div class="pick-name">${u.name}</div>
+        <div class="pick-stats" id="pick-stats-${u.id}">Loading…</div>
+      </div>
+      <div class="pick-check" id="pick-check-${u.id}" style="${pickedUserId===u.id?`background:${u.color};border-color:${u.color};color:#000`:''}">
+        ${pickedUserId===u.id?'✓':''}
+      </div>
+    </div>`).join('');
+
+  // fill in stats async
+  fetchJSON('/api/dashboard').then(d=>{
+    d.users.forEach(ud=>{
+      const el=document.getElementById('pick-stats-'+ud.id);
+      if(el) el.textContent=`${ud.total_annotations} labeled · ${ud.agencies_touched} agencies`;
+    });
+  }).catch(()=>{});
+
+  document.getElementById('user-confirm-btn').disabled = !pickedUserId;
+}
+
+function pickUser(uid){
+  pickedUserId=uid;
+  renderUserPicker();
+}
+
+function confirmUser(){
+  if(!pickedUserId) return;
+
+  currentUser = allUsers.find(u=>u.id===pickedUserId);
+
+  localStorage.setItem('current_user_id', currentUser.id);
+
+  document.getElementById('user-modal').classList.add('hidden');
+
+  updateUserChip();
+
+  loadAgencies();   // 👈 LOAD AFTER USER PICK
+}
+
+function updateUserChip(){
+  if(!currentUser) return;
+  const av=document.getElementById('hdr-avatar');
+  const nm=document.getElementById('hdr-username');
+  av.textContent=initials(currentUser.name);
+  av.style.background=currentUser.color+'22';
+  av.style.color=currentUser.color;
+  nm.textContent=currentUser.name;
+}
+
+// ─── COMPLETION MODAL ─────────────────────────
+let _completionExcelUrl = null;
+
+function showCompletionModal(agency, excelUrl){
+  _completionExcelUrl = excelUrl;
+  const total = filteredRows.length;
+  let correct=0, wrong=0;
+  filteredRows.forEach(r=>{
+    const a=localAnn[r.row_id]||{};
+    if(a.label==='actual_correct') correct++;
+    if(a.label==='actual_wrong')   wrong++;
+  });
+  document.getElementById('c-agency-name').textContent = agency;
+  document.getElementById('c-total').textContent   = total;
+  document.getElementById('c-correct').textContent = correct;
+  document.getElementById('c-wrong').textContent   = wrong;
+  document.getElementById('completion-modal').classList.remove('hidden');
+  setTimeout(downloadCompletionExcel, 800);
+}
+function downloadCompletionExcel(){
+  if(_completionExcelUrl) window.open(SERVER+_completionExcelUrl,'_blank');
+}
+function closeCompletionModal(){
+  document.getElementById('completion-modal').classList.add('hidden');
+  _completionExcelUrl=null;
+  const next=agencyMeta.find(a=>!a.completed&&a.agency!==selectedAgency&&a.pending>0);
+  if(next) selectAgency(next.agency);
+}
+async function loadAgencies(){
+  const agencies = await fetchJSON('/api/agencies?user=' + currentUser.id);
+
+  agencyMeta = agencies;
+
+  setText('hp-total', agencyMeta.reduce((s,a)=>s+a.total, 0));
+
+  renderAgencySidebar();
+
+  const first = agencyMeta.find(a=>!a.completed && a.pending>0) || agencyMeta[0];
+  if(first) selectAgency(first.agency);
+}
+
+// ─── BOOT  (fast — only metadata, NO 64k rows) ─
+async function boot(){
+  setText('loader-text','Connecting to server…');
+
+  try{
+
+    // 1️⃣ Load users first
+    allUsers = await fetchJSON('/api/users');
+
+    // 2️⃣ Render the user picker grid
+    renderUserPicker();
+
+    hide('loading-screen');
+    show('app');
+
+    // 3️⃣ Check if user already selected before
+    const savedId = localStorage.getItem('current_user_id');
+    const found = allUsers.find(u=>u.id === savedId);
+
+    if(found){
+      currentUser = found;
+      pickedUserId = found.id;
+      updateUserChip();
+      loadAgencies();
+    }else{
+      showUserPicker();
+    }
+
+  }catch(e){
+    console.error(e);
+    hide('loading-screen');
+    show('error-screen');
+  }
+}
+
+async function restoreAnnotationsInBackground(){
+  try{
+    const anns = await fetchJSON('/api/annotations?limit=100000');
+    anns.forEach(a=>{
+      if(!localAnn[a.row_id])
+        localAnn[a.row_id]={ label:a.label||'', notes:a.notes||'', skipped:!!a.skipped };
+    });
+    updateHeaderProgress();
+    if(filteredRows.length) { renderVerdicts(); renderOptions(); renderNotes(); }
+  }catch(e){ console.warn('Background annotation restore failed:', e); }
+}
+
+
+
+// ─── LAZY AGENCY LOADING ──────────────────────
+
+async function loadAgencyRows(agency){
+  if(rowCache.has(agency)) return rowCache.get(agency);
+  try{
+    const rows = await fetchJSON(`/api/images/${encodeURIComponent(agency)}`);
+    // Merge server-saved labels into localAnn
+    rows.forEach(r=>{
+      if(!localAnn[r.row_id]){
+        localAnn[r.row_id]={
+          label:   r._saved_label   ||'',
+          notes:   r._saved_notes   ||'',
+          skipped: r._saved_skipped ||false,
+        };
+      }
+    });
+    rowCache.set(agency, rows);
+    return rows;
+  }catch(e){
+    document.getElementById('image-frame').innerHTML='<div class="img-error">⚠️ Failed to load agency rows</div>';
+    return [];
+  }
+}
+
+async function prefetchAgency(agency){
+  if(rowCache.has(agency)||prefetching.has(agency)) return;
+  prefetching.add(agency);
+  try{
+    const rows = await fetchJSON(`/api/images/${encodeURIComponent(agency)}`);
+    rows.forEach(r=>{ if(!localAnn[r.row_id]) localAnn[r.row_id]={label:r._saved_label||'',notes:r._saved_notes||'',skipped:r._saved_skipped||false}; });
+    rowCache.set(agency, rows);
+  }catch(e){}
+  prefetching.delete(agency);
+}
+
+async function selectAgency(agency){
+  selectedAgency = agency;
+  currentIdx     = 0;
+  filteredRows   = [];
+  renderAgencySidebar(document.getElementById('agency-filter').value);
+  const meta = agencyMeta.find(a=>a.agency===agency);
+  setText('current-agency-label', meta?`${agency} · ${meta.annotated}/${meta.total} done`:agency);
+
+  // Show spinner while loading
+  document.getElementById('image-frame').innerHTML=
+    '<div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:40px"><div class="img-spinner"></div><div class="img-loading" style="padding:0">Loading…</div></div>';
+  setText('img-counter','…');
+
+  const rows = await loadAgencyRows(agency);
+  if(selectedAgency !== agency) return; // user switched while loading
+
+  filteredRows = rows;
+  renderAll();
+
+  // Prefetch next 2 agencies silently
+  const i = agencyMeta.findIndex(a=>a.agency===agency);
+  [1,2].forEach(offset=>{ if(agencyMeta[i+offset]) prefetchAgency(agencyMeta[i+offset].agency); });
+}
+
+// ─── AGENCY SIDEBAR ───────────────────────────
+function renderAgencySidebar(filter=''){
+  const list=document.getElementById('agency-list');
+  list.innerHTML='';
+  setText('agency-total-count', agencyMeta.length+' agencies');
+  const filtered=agencyMeta.filter(a=>!filter||a.agency.toLowerCase().includes(filter.toLowerCase()));
+  filtered.forEach(ag=>{
+    const pct=ag.total>0?(ag.annotated/ag.total)*100:0;
+    const color=ag.completed?'#4caf80':pct>50?'#f5a623':'#5b8dee';
+    const item=document.createElement('div');
+    item.className='agency-item'+(selectedAgency===ag.agency?' active':'');
+    item.innerHTML=`
+      <div class="agency-dot" style="background:${color}"></div>
+      <div class="agency-name" title="${ag.agency}">${ag.completed?'✅ ':''}${ag.agency}</div>
+      <div class="agency-count">${ag.annotated}/${ag.total}</div>
+      <div class="agency-bar"><div class="agency-bar-fill" style="width:${Math.min(pct,100)}%;background:${color}"></div></div>`;
+    item.addEventListener('click',()=>selectAgency(ag.agency));
+    list.appendChild(item);
+  });
+}
+
+function filterAgencies(){ renderAgencySidebar(document.getElementById('agency-filter').value); }
+
+// ─── RENDER ───────────────────────────────────
+function renderAll(){ renderImage(); renderMeta(); renderVerdicts(); renderOptions(); renderNotes(); renderCounter(); }
+
+function renderCounter(){
+  const total=filteredRows.length, cur=currentIdx+1;
+  setText('img-counter', total?`${cur} / ${total}`:'— / —');
+  document.getElementById('btn-prev').disabled=currentIdx<=0;
+  document.getElementById('btn-next').disabled=currentIdx>=filteredRows.length-1;
+}
+
+function renderImage(){
+  const frame=document.getElementById('image-frame');
+  const row=filteredRows[currentIdx];
+  if(!row){ frame.innerHTML='<div class="img-loading">No images for this agency</div>'; return; }
+  const url=getUrl(row);
+  if(!url){ frame.innerHTML='<div class="img-error">⚠️ No image URL</div>'; return; }
+  frame.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:40px"><div class="img-spinner"></div></div>';
+  const img=new Image();
+  img.onload=()=>{
+    if(getUrl(filteredRows[currentIdx])!==url) return;
+    frame.innerHTML='';
+    img.style.cssText='max-width:100%;max-height:390px;object-fit:contain;display:block;';
+    frame.appendChild(img);
+  };
+  img.onerror=()=>{ frame.innerHTML=`<div class="img-error">⚠️ Failed to load<br/><small style="color:var(--text-muted);font-size:11px;word-break:break-all">${url}</small></div>`; };
+  img.src=url;
+}
+
+function renderMeta(){
+  const row=filteredRows[currentIdx]||{};
+  const grid=document.getElementById('meta-grid');
+  const fields=[
+    {key:'actual_reading',   label:'Actual Reading'},
+    {key:'ai_meter_reading', label:'AI Reading'},
+    {key:'consumer_id',      label:'Consumer ID'},
+    {key:'confidence_score', label:'Confidence'},
+  ];
+  grid.innerHTML='';
+  fields.forEach(f=>{
+    const val=row[f.key]!==undefined&&row[f.key]!==null?row[f.key]:'—';
+    const div=document.createElement('div'); div.className='meta-item';
+    let valHtml=`<value>${val}</value>`;
+    if(f.key==='confidence_score'&&val!=='—'){
+      const n=parseFloat(val); const cls=n<0.5?'badge-err':n<0.8?'badge-warn':'badge-ok';
+      valHtml=`<span class="badge ${cls}">${(n*100).toFixed(1)}%</span>`;
+    }
+    div.innerHTML=`<label>${f.label}</label>${valHtml}`;
+    grid.appendChild(div);
+  });
+}
+
+function renderVerdicts(){
+  const row=filteredRows[currentIdx];
+  const ann=row?(localAnn[row.row_id]||{}):{};
+  const lbl=ann.label||'';
+  document.getElementById('v-correct').classList.toggle('selected',lbl==='actual_correct');
+  document.getElementById('v-wrong').classList.toggle('selected',  lbl==='actual_wrong');
+}
+
+function renderOptions(){
+  const list=document.getElementById('options-list');
+  const row=filteredRows[currentIdx];
+  const ann=row?(localAnn[row.row_id]||{}):{};
+  const lbl=ann.label||'';
+  const extras=[
+    ...DEFAULT_EXTRA,
+    ...customOptions.map(c=>({key:c.toLowerCase().replace(/\s+/g,'_'),label:c,icon:'🏷️',custom:true}))
+  ];
+  list.innerHTML='';
+  extras.forEach(opt=>{
+    const chip=document.createElement('div');
+    chip.className='option-chip'+(lbl===opt.key?' selected':'');
+    chip.innerHTML=`<span class="chip-icon">${opt.icon}</span><span class="chip-label">${opt.label}</span><div class="chip-check">${lbl===opt.key?'✓':''}</div>`;
+    chip.addEventListener('click',()=>selectLabel(opt.key));
+    list.appendChild(chip);
+  });
+}
+
+function renderNotes(){
+  const row=filteredRows[currentIdx];
+  const ann=row?(localAnn[row.row_id]||{}):{};
+  document.getElementById('notes-field').value=ann.notes||'';
+}
+
+// ─── LABEL SELECTION ──────────────────────────
+function setVerdict(key){
+  if(!currentUser){ showToast('Please select a user first','warn'); showUserPicker(); return; }
+  const row=filteredRows[currentIdx]; if(!row) return;
+  if(!localAnn[row.row_id]) localAnn[row.row_id]={};
+  const ann=localAnn[row.row_id];
+  ann.label=ann.label===key?'':key;
+  renderVerdicts(); renderOptions(); autoSync(row);
+}
+
+function selectLabel(key){
+  if(!currentUser){ showToast('Please select a user first','warn'); showUserPicker(); return; }
+  const row=filteredRows[currentIdx]; if(!row) return;
+  if(!localAnn[row.row_id]) localAnn[row.row_id]={};
+  localAnn[row.row_id].label=localAnn[row.row_id].label===key?'':key;
+  renderVerdicts(); renderOptions(); autoSync(row);
+}
+
+function autoSync(row){ clearTimeout(pendingSave); pendingSave=setTimeout(()=>pushAnnotation(row,false),600); }
+
+// ─── PUSH TO SERVER ───────────────────────────
+async function pushAnnotation(row,showMsg=true){
+  if(!row||!currentUser) return false;
+  const notes=document.getElementById('notes-field').value;
+  if(!localAnn[row.row_id]) localAnn[row.row_id]={};
+  localAnn[row.row_id].notes=notes;
+  const ann=localAnn[row.row_id];
+
+  const resp=await postAnnotation({
+    row_id:       row.row_id,
+    agency:       row._agency,
+    consumer_id:  row.consumer_id||'',
+    img_url:      getUrl(row),
+    label:        ann.label||'',
+    notes:        ann.notes||'',
+    skipped:      ann.skipped||false,
+    annotated_by: currentUser.id
+  });
+  if(!resp) return false;
+
+  updateAgencyMeta(row._agency);
+  updateHeaderProgress();
+  if(showMsg) showToast('Saved ✓');
+
+  // ── Agency just completed? ──
+  if(resp.agency_completed && resp.excel_url){
+    showCompletionModal(row._agency, resp.excel_url, resp.excel_filename);
+  }
+  return true;
+}
+
+async function saveAndGo(direction){
+  const row=filteredRows[currentIdx];
+  if(!row) return;
+  if(!currentUser){ showToast('Please select a user first','warn'); showUserPicker(); return; }
+  const ann=localAnn[row.row_id]||{};
+  if(!ann.label&&!ann.skipped){ showToast('Please select a verdict or label first','warn'); return; }
+  const ok=await pushAnnotation(row,true);
+  if(!ok) return;
+  if(direction==='next'&&currentIdx<filteredRows.length-1){ currentIdx++; renderAll(); }
+  else if(direction==='next') showToast('🎉 All images reviewed for this agency!');
+}
+
+function skipCurrent(){
+  if(!currentUser){ showToast('Please select a user first','warn'); showUserPicker(); return; }
+  const row=filteredRows[currentIdx]; if(!row) return;
+  if(!localAnn[row.row_id]) localAnn[row.row_id]={};
+  localAnn[row.row_id].skipped=true;
+  pushAnnotation(row,false);
+  showToast('Skipped');
+  if(currentIdx<filteredRows.length-1){ currentIdx++; renderAll(); }
+}
+
+// ─── HEADER PROGRESS ──────────────────────────
+function updateHeaderProgress(){
+  const done=Object.values(localAnn).filter(a=>a.label||a.skipped).length;
+  setText('hp-done',done);
+}
+
+function updateAgencyMeta(agency){
+  const meta=agencyMeta.find(a=>a.agency===agency); 
+  if(!meta) return;
+
+  const agRows=rowCache.get(agency) || [];
+
+  let annotated=0;
+  agRows.forEach(r=>{
+    const a=localAnn[r.row_id];
+    if(a && (a.label || a.skipped)) annotated++;
+  });
+
+  meta.annotated=annotated;
+  meta.pending=meta.total-annotated;
+
+  setText('current-agency-label',`${agency} · ${annotated}/${meta.total} done`);
+  renderAgencySidebar(document.getElementById('agency-filter').value);
+}
+
+// ─── CUSTOM OPTIONS ───────────────────────────
+function addCustomOption(){
+  const inp=document.getElementById('new-option-input');
+  const val=inp.value.trim(); if(!val) return;
+  customOptions.push(val);
+  localStorage.setItem('custom_options',JSON.stringify(customOptions));
+  renderOptions(); inp.value=''; showToast(`"${val}" added`);
+}
+
+// ─── EXPORT ───────────────────────────────────
+function exportCSV(){ window.open(SERVER+'/api/export/csv','_blank'); }
+
+// ─── NAV EVENTS ───────────────────────────────
+document.getElementById('btn-prev').addEventListener('click',()=>{ if(currentIdx>0){currentIdx--;renderAll();} });
+document.getElementById('btn-next').addEventListener('click',()=>{ if(currentIdx<filteredRows.length-1){currentIdx++;renderAll();} });
+document.getElementById('btn-skip').addEventListener('click',skipCurrent);
+document.getElementById('btn-save-only').addEventListener('click',()=>pushAnnotation(filteredRows[currentIdx],true));
+document.getElementById('btn-save-next').addEventListener('click',()=>saveAndGo('next'));
+
+// keyboard shortcuts
+document.addEventListener('keydown', e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+  if(e.key==='ArrowRight'||e.key==='n') document.getElementById('btn-next').click();
+  if(e.key==='ArrowLeft' ||e.key==='b') document.getElementById('btn-prev').click();
+  if(e.key==='c') setVerdict('actual_correct');
+  if(e.key==='w') setVerdict('actual_wrong');
+  if(e.key==='s') document.getElementById('btn-save-next').click();
+});
+
+boot();
+</script>
+</body>
+</html>

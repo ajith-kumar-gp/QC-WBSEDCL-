@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+annotations.db
+exports/
+*.log
+venv/
+.env

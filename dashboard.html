@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Annotation Dashboard</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg:#0a0b0d; --surface:#121417; --surface2:#191c20; --surface3:#1f2228;
+  --border:#252830; --border2:#2e333d;
+  --amber:#f5a623; --green:#4caf80; --blue:#5b8dee;
+  --red:#e05252; --purple:#a78bfa; --cyan:#06b6d4;
+  --text:#e8e9eb; --text-dim:#7c8492; --text-muted:#454b57;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;}
+body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;min-height:100vh;}
+
+/* HEADER */
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50;gap:12px;flex-wrap:wrap;}
+.logo{font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.08em;color:var(--amber);display:flex;align-items:center;gap:8px;}
+.logo-dot{width:7px;height:7px;border-radius:50%;background:var(--amber);animation:blink 2s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.header-actions{display:flex;align-items:center;gap:12px;}
+.live-badge{display:flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--green);background:rgba(76,175,128,.1);border:1px solid rgba(76,175,128,.25);border-radius:20px;padding:4px 12px;}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 1.2s infinite;}
+.refresh-info{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);}
+.btn{cursor:pointer;border:none;border-radius:6px;padding:7px 16px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:500;transition:all .15s;}
+.btn-ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border2);}
+.btn-ghost:hover{border-color:var(--amber);color:var(--amber);}
+
+/* MAIN */
+main{padding:28px;display:flex;flex-direction:column;gap:28px;max-width:1400px;margin:0 auto;width:100%;}
+
+/* GLOBAL STATS ROW */
+.global-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;}
+.g-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px 24px;position:relative;overflow:hidden;}
+.g-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.015) 0%,transparent 60%);}
+.g-card .g-val{font-family:'IBM Plex Mono',monospace;font-size:36px;font-weight:600;line-height:1;margin-bottom:6px;}
+.g-card .g-lbl{font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.07em;}
+.g-card .g-sub{font-size:11px;color:var(--text-muted);margin-top:4px;font-family:'IBM Plex Mono',monospace;}
+.g-card .g-icon{position:absolute;top:18px;right:20px;font-size:28px;opacity:.2;}
+.accent-amber .g-val{color:var(--amber);}
+.accent-green  .g-val{color:var(--green);}
+.accent-blue   .g-val{color:var(--blue);}
+.accent-purple .g-val{color:var(--purple);}
+
+/* SECTION TITLE */
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.section-title{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);font-family:'IBM Plex Mono',monospace;}
+
+/* USER CARDS GRID */
+.users-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;}
+.user-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:border-color .2s;}
+.user-card:hover{border-color:var(--border2);}
+.user-card-header{padding:18px 20px 14px;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border);}
+.user-avatar{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;font-family:'IBM Plex Mono',monospace;flex-shrink:0;}
+.user-info{flex:1;min-width:0;}
+.user-name{font-size:15px;font-weight:600;margin-bottom:2px;}
+.user-role{font-size:12px;color:var(--text-muted);}
+.user-rank{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;background:var(--surface2);color:var(--text-dim);}
+
+.user-stats{display:grid;grid-template-columns:1fr 1fr 1fr;padding:14px 20px;gap:0;border-bottom:1px solid var(--border);}
+.u-stat{text-align:center;padding:4px 0;}
+.u-stat:not(:last-child){border-right:1px solid var(--border);}
+.u-val{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;margin-bottom:2px;}
+.u-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);}
+
+.user-progress-bar{height:4px;background:var(--border);margin:0 20px;border-radius:2px;overflow:hidden;}
+.user-progress-fill{height:100%;border-radius:2px;transition:width .6s ease;}
+
+.user-labels{padding:14px 20px;border-bottom:1px solid var(--border);}
+.label-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;}
+.label-row:last-child{margin-bottom:0;}
+.label-name{width:110px;color:var(--text-dim);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.label-track{flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;}
+.label-fill{height:100%;border-radius:3px;transition:width .5s;}
+.label-count{width:30px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);}
+.no-labels{font-size:12px;color:var(--text-muted);padding:4px 0;}
+
+.user-agencies{padding:14px 20px;}
+.agencies-title{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);margin-bottom:10px;font-family:'IBM Plex Mono',monospace;}
+.agency-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.agency-chip{font-size:11px;padding:3px 9px;border-radius:4px;background:var(--surface2);color:var(--text-dim);border:1px solid var(--border2);font-family:'IBM Plex Mono',monospace;cursor:default;}
+.agency-chip:hover{border-color:var(--amber);color:var(--text);}
+.more-chip{background:transparent;border:1px dashed var(--border2);color:var(--text-muted);}
+
+/* LEADERBOARD TABLE */
+.leaderboard{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.lb-table{width:100%;border-collapse:collapse;}
+.lb-table thead{background:var(--surface2);}
+.lb-table th{padding:11px 16px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);font-family:'IBM Plex Mono',monospace;font-weight:500;border-bottom:1px solid var(--border);}
+.lb-table td{padding:13px 16px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle;}
+.lb-table tr:last-child td{border-bottom:none;}
+.lb-table tbody tr{transition:background .12s;}
+.lb-table tbody tr:hover{background:var(--surface2);}
+.rank-cell{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text-muted);width:40px;}
+.rank-1{color:var(--amber);font-weight:700;}
+.rank-2{color:#c0c0c0;}
+.rank-3{color:#cd7f32;}
+.user-cell{display:flex;align-items:center;gap:10px;}
+.mini-avatar{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;}
+.bar-cell{min-width:120px;}
+.progress-mini{height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;margin-top:4px;}
+.progress-mini-fill{height:100%;border-radius:3px;}
+.pct-text{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);}
+
+/* AGENCY COVERAGE TABLE */
+.coverage-section{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.coverage-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.coverage-header{padding:14px 18px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;}
+.coverage-list{max-height:320px;overflow-y:auto;}
+.cov-row{display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--border);font-size:12px;}
+.cov-row:last-child{border-bottom:none;}
+.cov-name{flex:1;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cov-pct{font-family:'IBM Plex Mono',monospace;font-size:11px;width:42px;text-align:right;}
+.cov-bar{width:80px;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;}
+.cov-fill{height:100%;border-radius:3px;}
+.cov-annotators{display:flex;gap:3px;}
+.cov-dot{width:8px;height:8px;border-radius:50%;}
+
+/* ACTIVITY FEED */
+.activity-feed{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.activity-list{max-height:300px;overflow-y:auto;}
+.activity-item{display:flex;align-items:flex-start;gap:10px;padding:11px 18px;border-bottom:1px solid var(--border);font-size:12px;}
+.activity-item:last-child{border-bottom:none;}
+.act-dot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex-shrink:0;}
+.act-body{flex:1;line-height:1.5;}
+.act-user{font-weight:600;}
+.act-detail{color:var(--text-dim);}
+.act-time{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);white-space:nowrap;margin-top:1px;}
+.no-activity{padding:32px;text-align:center;color:var(--text-muted);font-size:13px;}
+
+/* SCROLLBAR */
+::-webkit-scrollbar{width:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+
+/* LOADING */
+#loading{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:999;}
+.loader-ring{width:48px;height:48px;border:3px solid var(--border);border-top-color:var(--amber);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-txt{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text-muted);}
+
+/* EMPTY */
+.empty-state{padding:48px;text-align:center;color:var(--text-muted);font-size:13px;}
+
+/* ── COMPLETED AGENCIES ── */
+.completed-section{background:var(--surface);border:1px solid rgba(76,175,128,.25);border-radius:12px;overflow:hidden;box-shadow:0 0 32px rgba(76,175,128,.04);}
+.completed-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.completed-header-left{display:flex;align-items:center;gap:10px;}
+.completed-header h3{font-size:14px;font-weight:600;}
+.completed-badge{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:3px 10px;border-radius:12px;background:rgba(76,175,128,.12);color:var(--green);border:1px solid rgba(76,175,128,.25);}
+.completed-search{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:12px;outline:none;width:200px;transition:border-color .15s;}
+.completed-search:focus{border-color:var(--green);}
+.completed-search::placeholder{color:var(--text-muted);}
+.completed-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:0;max-height:520px;overflow-y:auto;}
+.completed-item{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);transition:background .12s;}
+.completed-item:hover{background:var(--surface2);}
+.ci-icon{width:36px;height:36px;border-radius:8px;background:rgba(76,175,128,.1);border:1px solid rgba(76,175,128,.2);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.ci-info{flex:1;min-width:0;}
+.ci-name{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:2px;}
+.ci-meta{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);}
+.ci-actions{display:flex;gap:6px;flex-shrink:0;}
+.ci-btn{display:flex;align-items:center;gap:4px;padding:5px 10px;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;border:none;font-family:'IBM Plex Sans',sans-serif;transition:all .15s;}
+.ci-btn-dl{background:rgba(76,175,128,.15);color:var(--green);border:1px solid rgba(76,175,128,.3);}
+.ci-btn-dl:hover{background:rgba(76,175,128,.28);}
+.ci-btn-re{background:var(--surface2);color:var(--text-muted);border:1px solid var(--border);}
+.ci-btn-re:hover{border-color:var(--amber);color:var(--amber);}
+.ci-btn-re.spinning{animation:spin .6s linear infinite;pointer-events:none;}
+.completed-empty{padding:48px;text-align:center;color:var(--text-muted);font-size:13px;grid-column:1/-1;}
+.completed-stats-row{display:grid;grid-template-columns:repeat(3,1fr);padding:14px 20px;border-bottom:1px solid var(--border);gap:0;background:var(--surface2);}
+.csr-item{text-align:center;padding:4px;}
+.csr-item:not(:last-child){border-right:1px solid var(--border);}
+.csr-val{font-family:'IBM Plex Mono',monospace;font-size:18px;font-weight:600;color:var(--green);}
+.csr-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-top:2px;}
+
+/* responsive */
+@media(max-width:900px){
+  .global-row{grid-template-columns:1fr 1fr;}
+  .coverage-section{grid-template-columns:1fr;}
+}
+@media(max-width:600px){
+  .global-row{grid-template-columns:1fr;}
+  main{padding:16px;}
+}
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="loader-ring"></div>
+  <div class="loader-txt">Loading dashboard…</div>
+</div>
+
+<header>
+  <div class="logo"><div class="logo-dot"></div>ANNOTATION · DASHBOARD</div>
+  <div class="header-actions">
+    <span class="refresh-info" id="last-refresh">—</span>
+    <span class="live-badge"><span class="live-dot"></span>LIVE</span>
+    <a href="/" style="text-decoration:none"><button class="btn btn-ghost">← Annotator</button></a>
+    <button class="btn btn-ghost" onclick="load()">↻ Refresh</button>
+  </div>
+</header>
+
+<main id="main" style="display:none">
+
+  <!-- GLOBAL STATS -->
+  <div>
+    <div class="section-header">
+      <span class="section-title">Overall Progress</span>
+    </div>
+    <div class="global-row" id="global-row"></div>
+  </div>
+
+  <!-- USER CARDS -->
+  <div>
+    <div class="section-header">
+      <span class="section-title">Annotator Breakdown</span>
+    </div>
+    <div class="users-grid" id="users-grid"></div>
+  </div>
+
+  <!-- LEADERBOARD -->
+  <div>
+    <div class="section-header">
+      <span class="section-title">Leaderboard</span>
+    </div>
+    <div class="leaderboard">
+      <table class="lb-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Annotator</th>
+            <th>Agencies Done</th>
+            <th>Annotations</th>
+            <th>Correct</th>
+            <th>Wrong</th>
+            <th>Progress</th>
+          </tr>
+        </thead>
+        <tbody id="lb-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- COMPLETED AGENCIES -->
+  <div>
+    <div class="section-header">
+      <span class="section-title">✅ Completed Agencies — Excel Reports</span>
+      <input class="completed-search" id="completed-search" placeholder="Filter agencies…" oninput="filterCompleted()"/>
+    </div>
+    <div class="completed-section">
+      <div class="completed-stats-row" id="completed-stats-row">
+        <div class="csr-item"><div class="csr-val" id="csr-done">0</div><div class="csr-lbl">Completed</div></div>
+        <div class="csr-item"><div class="csr-val" id="csr-total" style="color:var(--amber)">0</div><div class="csr-lbl">Total Agencies</div></div>
+        <div class="csr-item"><div class="csr-val" id="csr-pct" style="color:var(--blue)">0%</div><div class="csr-lbl">Done</div></div>
+      </div>
+      <div class="completed-grid" id="completed-grid">
+        <div class="completed-empty">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AGENCY COVERAGE + ACTIVITY -->
+  <div class="coverage-section">
+
+    <div class="coverage-card">
+      <div class="coverage-header">🗂️ Agency Coverage</div>
+      <div class="coverage-list" id="coverage-list"></div>
+    </div>
+
+    <div class="activity-feed">
+      <div class="coverage-header">⚡ Recent Activity</div>
+      <div class="activity-list" id="activity-list"></div>
+    </div>
+
+  </div>
+
+</main>
+
+<script>
+const SERVER = '';
+const LABEL_COLORS = {
+  actual_correct: '#4caf80',
+  actual_wrong:   '#e05252',
+  not_readable:   '#f5a623',
+  ocr_failed:     '#5b8dee',
+  partial_read:   '#a78bfa',
+  skipped:        '#555a63',
+};
+function lcolor(lbl) { return LABEL_COLORS[lbl] || '#888c94'; }
+
+let dashData = null;
+let agencyData = null;
+let allAnnotations = [];
+let completedAgencies = [];
+
+async function fetchJSON(path) {
+  const r = await fetch(SERVER + path);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+function timeAgo(iso) {
+  if (!iso) return '—';
+  const diff = (Date.now() - new Date(iso + 'Z').getTime()) / 1000;
+  if (diff < 60)   return `${Math.floor(diff)}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400)return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso + 'Z').toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+function initials(name) {
+  return name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+}
+
+async function load() {
+  try {
+    [dashData, agencyData, allAnnotations, completedAgencies] = await Promise.all([
+      fetchJSON('/api/dashboard'),
+      fetchJSON('/api/agencies'),
+      fetchJSON('/api/annotations'),
+      fetchJSON('/api/completed_agencies')
+    ]);
+    render();
+    document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('main').style.display    = 'flex';
+  } catch(e) {
+    console.error(e);
+    document.getElementById('loading').innerHTML =
+      '<div style="text-align:center;padding:40px"><h2 style="color:#e05252;margin-bottom:10px">⚠️ Cannot reach server</h2><p style="color:#7c8492;font-size:14px">Make sure <code style="background:#1f2228;padding:2px 6px;border-radius:4px">python server.py</code> is running</p></div>';
+  }
+}
+
+function render() {
+  renderGlobal();
+  renderUserCards();
+  renderLeaderboard();
+  renderCompletedAgencies();
+  renderCoverage();
+  renderActivity();
+}
+
+// ─── GLOBAL STATS ─────────────────────────────
+function renderGlobal() {
+  const g = dashData.global;
+  const pct = g.total_images > 0 ? ((g.total_annotated / g.total_images)*100).toFixed(1) : 0;
+  document.getElementById('global-row').innerHTML = `
+    <div class="g-card accent-amber">
+      <div class="g-icon">🖼️</div>
+      <div class="g-val">${g.total_images.toLocaleString()}</div>
+      <div class="g-lbl">Total Images</div>
+      <div class="g-sub">${g.total_agencies} agencies</div>
+    </div>
+    <div class="g-card accent-green">
+      <div class="g-icon">✅</div>
+      <div class="g-val">${g.total_annotated.toLocaleString()}</div>
+      <div class="g-lbl">Annotated</div>
+      <div class="g-sub">${pct}% complete</div>
+    </div>
+    <div class="g-card accent-blue">
+      <div class="g-icon">⏳</div>
+      <div class="g-val">${(g.total_images - g.total_annotated).toLocaleString()}</div>
+      <div class="g-lbl">Remaining</div>
+      <div class="g-sub">${g.total_agencies - g.completed_agencies} agencies in progress</div>
+    </div>
+    <div class="g-card accent-purple">
+      <div class="g-icon">🏁</div>
+      <div class="g-val">${g.completed_agencies}</div>
+      <div class="g-lbl">Completed Agencies</div>
+      <div class="g-sub">of ${g.total_agencies} total</div>
+    </div>
+  `;
+}
+
+// ─── USER CARDS ───────────────────────────────
+function renderUserCards() {
+  const grid = document.getElementById('users-grid');
+  const users = dashData.users;
+  const maxAnn = Math.max(...users.map(u => u.total_annotations), 1);
+  const totalAgencies = dashData.global.total_agencies;
+
+  grid.innerHTML = users.map((u, i) => {
+    const pct = ((u.total_annotations / Math.max(dashData.global.total_images, 1))*100).toFixed(1);
+    const agPct = totalAgencies > 0 ? ((u.agencies_touched / totalAgencies)*100).toFixed(0) : 0;
+    const topLabels = Object.entries(u.labels).sort((a,b)=>b[1]-a[1]).slice(0,4);
+    const totalLbl  = topLabels.reduce((s,[,c])=>s+c,0)||1;
+    const topAgencies = u.agencies_list.slice(0,8);
+    const moreCount   = u.agencies_list.length - topAgencies.length;
+
+    const labelBars = topLabels.length ? topLabels.map(([lbl,cnt]) => `
+      <div class="label-row">
+        <div class="label-name">${fmtLabel(lbl)}</div>
+        <div class="label-track"><div class="label-fill" style="width:${(cnt/totalLbl*100).toFixed(0)}%;background:${lcolor(lbl)}"></div></div>
+        <div class="label-count">${cnt}</div>
+      </div>`).join('') : '<div class="no-labels">No annotations yet</div>';
+
+    const chips = topAgencies.map(ag =>
+      `<span class="agency-chip" title="${ag}">${ag.length > 14 ? ag.slice(0,13)+'…' : ag}</span>`
+    ).join('') + (moreCount > 0 ? `<span class="agency-chip more-chip">+${moreCount} more</span>` : '');
+
+    return `
+    <div class="user-card">
+      <div class="user-card-header">
+        <div class="user-avatar" style="background:${u.color}22;color:${u.color}">${initials(u.name)}</div>
+        <div class="user-info">
+          <div class="user-name">${u.name}</div>
+          <div class="user-role">${u.agencies_touched} agencies · ${pct}% of total</div>
+        </div>
+        <div class="user-rank">#${i+1}</div>
+      </div>
+
+      <div class="user-stats">
+        <div class="u-stat">
+          <div class="u-val" style="color:${u.color}">${u.total_annotations}</div>
+          <div class="u-lbl">Labeled</div>
+        </div>
+        <div class="u-stat">
+          <div class="u-val">${u.agencies_touched}</div>
+          <div class="u-lbl">Agencies</div>
+        </div>
+        <div class="u-stat">
+          <div class="u-val">${agPct}%</div>
+          <div class="u-lbl">Coverage</div>
+        </div>
+      </div>
+
+      <div style="padding:8px 20px 12px">
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-bottom:5px;font-family:'IBM Plex Mono',monospace">
+          <span>Progress</span><span>${pct}%</span>
+        </div>
+        <div class="user-progress-bar" style="margin:0">
+          <div class="user-progress-fill" style="width:${Math.min(pct,100)}%;background:${u.color}"></div>
+        </div>
+      </div>
+
+      <div class="user-labels">
+        <div class="agencies-title">Label Breakdown</div>
+        ${labelBars}
+      </div>
+
+      <div class="user-agencies">
+        <div class="agencies-title">Agencies Worked On (${u.agencies_list.length})</div>
+        ${u.agencies_list.length ? `<div class="agency-chips">${chips}</div>` : '<div class="no-labels">None yet</div>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── COMPLETED AGENCIES ───────────────────────
+function renderCompletedAgencies(filter='') {
+  const grid  = document.getElementById('completed-grid');
+  const total = agencyData.length;
+  const done  = completedAgencies.length;
+  const pct   = total > 0 ? ((done/total)*100).toFixed(0) : 0;
+
+  document.getElementById('csr-done').textContent  = done;
+  document.getElementById('csr-total').textContent = total;
+  document.getElementById('csr-pct').textContent   = pct + '%';
+
+  const filtered = completedAgencies.filter(a =>
+    !filter || a.agency.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  if (!filtered.length) {
+    grid.innerHTML = `<div class="completed-empty">${completedAgencies.length ? 'No agencies match your filter.' : '🕐 No agencies completed yet — keep annotating!'}</div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(ag => {
+    const agMeta   = agencyData.find(a => a.agency === ag.agency) || {};
+    const correct  = agMeta.labels?.actual_correct || 0;
+    const wrong    = agMeta.labels?.actual_wrong   || 0;
+    const total    = ag.total_rows || 0;
+    const correctPct = total > 0 ? ((correct/total)*100).toFixed(0) : 0;
+    const wrongPct   = total > 0 ? ((wrong/total)*100).toFixed(0)   : 0;
+
+    return `
+    <div class="completed-item">
+      <div class="ci-icon">✅</div>
+      <div class="ci-info">
+        <div class="ci-name" title="${ag.agency}">${ag.agency}</div>
+        <div class="ci-meta">
+          ${total} rows &nbsp;·&nbsp;
+          <span style="color:#4caf80">${correct} correct (${correctPct}%)</span> &nbsp;·&nbsp;
+          <span style="color:#e05252">${wrong} wrong (${wrongPct}%)</span>
+        </div>
+        <div class="ci-meta" style="margin-top:2px">Completed ${fmtDate(ag.completed_at)}</div>
+      </div>
+      <div class="ci-actions">
+        ${ag.excel_url
+          ? `<button class="ci-btn ci-btn-dl" onclick="window.open('${ag.excel_url}','_blank')" title="Download Excel">⬇ Excel</button>`
+          : `<span style="font-size:11px;color:var(--text-muted)">No file</span>`
+        }
+        <button class="ci-btn ci-btn-re" id="regen-${ag.agency.replace(/\W/g,'_')}"
+          onclick="regenExcel('${ag.agency}')" title="Regenerate Excel">↺</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterCompleted() {
+  renderCompletedAgencies(document.getElementById('completed-search').value);
+}
+
+async function regenExcel(agency) {
+  const btnId = 'regen-' + agency.replace(/\W/g,'_');
+  const btn = document.getElementById(btnId);
+  if (btn) { btn.classList.add('spinning'); btn.textContent = '↺'; }
+
+  try {
+    const r = await fetch(SERVER + `/api/regenerate_excel/${encodeURIComponent(agency)}`, { method:'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      // update local data and re-render
+      const existing = completedAgencies.find(a => a.agency === agency);
+      if (existing) {
+        existing.excel_url  = d.excel_url;
+        existing.excel_name = d.excel_name;
+      }
+      renderCompletedAgencies(document.getElementById('completed-search').value);
+      // auto-download the new file
+      window.open(SERVER + d.excel_url, '_blank');
+    } else {
+      alert('Regeneration failed: ' + (d.error || 'unknown error'));
+    }
+  } catch(e) {
+    alert('Server error: ' + e.message);
+  } finally {
+    if (btn) { btn.classList.remove('spinning'); btn.textContent = '↺'; }
+  }
+}
+
+// ─── LEADERBOARD ──────────────────────────────
+function renderLeaderboard() {
+  const tbody = document.getElementById('lb-body');
+  const users = dashData.users;
+  const total = dashData.global.total_images || 1;
+
+  tbody.innerHTML = users.map((u, i) => {
+    const correct = u.labels['actual_correct'] || 0;
+    const wrong   = u.labels['actual_wrong']   || 0;
+    const pct     = ((u.total_annotations / total)*100).toFixed(1);
+    const rankCls = i===0?'rank-1':i===1?'rank-2':i===2?'rank-3':'';
+    return `
+    <tr>
+      <td class="rank-cell ${rankCls}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':'#'+(i+1)}</td>
+      <td>
+        <div class="user-cell">
+          <div class="mini-avatar" style="background:${u.color}22;color:${u.color}">${initials(u.name)}</div>
+          <span>${u.name}</span>
+        </div>
+      </td>
+      <td><span style="font-family:'IBM Plex Mono',monospace;color:var(--blue)">${u.agencies_touched}</span></td>
+      <td><span style="font-family:'IBM Plex Mono',monospace;font-weight:600;color:${u.color}">${u.total_annotations}</span></td>
+      <td><span style="font-family:'IBM Plex Mono',monospace;color:var(--green)">${correct}</span></td>
+      <td><span style="font-family:'IBM Plex Mono',monospace;color:var(--red)">${wrong}</span></td>
+      <td class="bar-cell">
+        <div class="pct-text">${pct}%</div>
+        <div class="progress-mini">
+          <div class="progress-mini-fill" style="width:${Math.min(pct,100)}%;background:${u.color}"></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="7" class="empty-state">No annotations yet</td></tr>`;
+}
+
+// ─── AGENCY COVERAGE ──────────────────────────
+function renderCoverage() {
+  const list = document.getElementById('coverage-list');
+  const userColors = {};
+  dashData.users.forEach(u => userColors[u.id] = u.color);
+
+  const completedSet = new Set(completedAgencies.map(a => a.agency));
+
+  const sorted = [...agencyData].sort((a,b) => {
+    // completed first, then by pct
+    if (a.completed !== b.completed) return a.completed ? -1 : 1;
+    const pa = a.total>0 ? a.annotated/a.total : 0;
+    const pb = b.total>0 ? b.annotated/b.total : 0;
+    return pb - pa;
+  });
+
+  list.innerHTML = sorted.map(ag => {
+    const pct       = ag.total > 0 ? ((ag.annotated/ag.total)*100).toFixed(0) : 0;
+    const isDone    = completedSet.has(ag.agency);
+    const color     = isDone ? '#4caf80' : parseInt(pct) > 50 ? '#f5a623' : '#5b8dee';
+    const dots      = Object.entries(ag.by_user||{}).map(([uid]) =>
+      `<div class="cov-dot" style="background:${userColors[uid]||'#888'}" title="${uid}"></div>`
+    ).join('');
+    const dlBtn     = isDone
+      ? `<a href="${SERVER}/api/exports/${completedAgencies.find(a=>a.agency===ag.agency)?.excel_name||''}"
+             target="_blank" style="font-size:10px;color:var(--green);text-decoration:none;margin-left:6px;font-family:'IBM Plex Mono',monospace;white-space:nowrap">⬇ xls</a>`
+      : '';
+
+    return `
+    <div class="cov-row" style="${isDone?'background:rgba(76,175,128,.03)':''}">
+      <div class="cov-name" title="${ag.agency}">${isDone?'✅ ':''}${ag.agency}</div>
+      <div class="cov-bar"><div class="cov-fill" style="width:${pct}%;background:${color}"></div></div>
+      <div class="cov-pct" style="color:${color}">${pct}%</div>
+      <div class="cov-annotators">${dots}${dlBtn}</div>
+    </div>`;
+  }).join('') || '<div class="empty-state">No data yet</div>';
+}
+
+// ─── ACTIVITY FEED ────────────────────────────
+function renderActivity() {
+  const list = document.getElementById('activity-list');
+  const userMap = {};
+  dashData.users.forEach(u => userMap[u.id] = u);
+
+  const sorted = [...allAnnotations]
+    .sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .slice(0, 40);
+
+  if (!sorted.length) {
+    list.innerHTML = '<div class="no-activity">No activity yet — start annotating!</div>';
+    return;
+  }
+
+  list.innerHTML = sorted.map(ann => {
+    const u = userMap[ann.annotated_by] || { name: ann.annotated_by || 'Unknown', color:'#888' };
+    const lbl = ann.skipped ? 'skipped' : (ann.label || 'unlabeled');
+    return `
+    <div class="activity-item">
+      <div class="act-dot" style="background:${lcolor(lbl)}"></div>
+      <div class="act-body">
+        <span class="act-user" style="color:${u.color}">${u.name}</span>
+        <span class="act-detail"> → ${fmtLabel(lbl)} on <em>${ann.agency}</em></span>
+        <div class="act-time">${timeAgo(ann.updated_at)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── HELPERS ──────────────────────────────────
+function fmtLabel(key) {
+  const map = {
+    actual_correct:'Actual Correct', actual_wrong:'Actual Wrong',
+    not_readable:'Not Readable', ocr_failed:'OCR Failed',
+    partial_read:'Partial Read', skipped:'Skipped', unlabeled:'Unlabeled'
+  };
+  return map[key] || key.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+}
+
+// ─── AUTO-REFRESH every 30s ───────────────────
+load();
+setInterval(load, 30_000);
+</script>
+</body>
+</html>
