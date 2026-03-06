@@ -668,4 +668,5 @@ if __name__ == "__main__":
     print(f"  Dashboard  →  http://localhost:{PORT}/dashboard")
     print(f"  Exports    →  ./{EXPORTS_DIR}/\n")
     # threaded=True: each request gets its own thread → concurrent users work fine
-    app.run(host=HOST, port=PORT, debug=False, threaded=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
