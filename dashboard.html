@@ -619,7 +619,7 @@ function renderActivity() {
   dashData.users.forEach(u => userMap[u.id] = u);
 
   const sorted = [...allAnnotations]
-    .sort((a,b) => new Date(b.updated_at) - new Date(a.updated_at))
+    .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, 40);
 
   if (!sorted.length) {
@@ -636,7 +636,7 @@ function renderActivity() {
       <div class="act-body">
         <span class="act-user" style="color:${u.color}">${u.name}</span>
         <span class="act-detail"> → ${fmtLabel(lbl)} on <em>${ann.agency}</em></span>
-        <div class="act-time">${timeAgo(ann.updated_at)}</div>
+        <div class="act-time">${timeAgo(ann.created_at)}</div>
       </div>
     </div>`;
   }).join('');

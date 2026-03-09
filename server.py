@@ -29,7 +29,6 @@ import datetime
 
 from flask import Flask, jsonify, request, send_from_directory, send_file, Response
 import pandas as pd
-import sqlite3
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import os
@@ -100,7 +99,7 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS annotations (
             id SERIAL PRIMARY KEY,
-            row_id TEXT,
+            row_id TEXT UNIQUE,
             agency TEXT,
             consumer_id TEXT,
             img_url TEXT,
@@ -211,15 +210,32 @@ def load_and_sample():
         _agency_index = idx
         _agency_names = sorted(idx.keys())
         _total_rows   = len(rows)
+
+        assign_agencies_to_users()   # <-- ADD THIS LINE
+
         print(f"[data] Ready — {_total_rows:,} rows cached in memory")
         return rows
-
+    
 USER_ASSIGNMENTS = {}
 
 def assign_agencies_to_users():
+
     global USER_ASSIGNMENTS
 
-    agencies = sorted(_agency_names)
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT DISTINCT agency
+        FROM meter_images
+        ORDER BY agency
+    """)
+
+    agencies = [r[0] for r in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+
     users = [u["id"] for u in USERS]
 
     USER_ASSIGNMENTS = {u: [] for u in users}
@@ -228,8 +244,7 @@ def assign_agencies_to_users():
         user = users[i % len(users)]
         USER_ASSIGNMENTS[user].append(agency)
 
-    print("Agency assignment complete")
-    
+    print("[server] Agency assignments created") 
 def get_agency_rows(agency: str):
     load_and_sample()
     return _agency_index.get(agency, [])
@@ -243,11 +258,15 @@ def get_agency_names():
 
 def get_agency_stats(db):
     """Returns dict: agency -> {annotated, by_user, labels}"""
-    rows = db.execute(
-        "SELECT agency, label, skipped, annotated_by, COUNT(*) as cnt "
-        "FROM annotations "
-        "GROUP BY agency, label, skipped, annotated_by"
-    ).fetchall()
+    cur = db.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+    SELECT agency, label, skipped, annotated_by, COUNT(*) as cnt
+    FROM annotations
+    GROUP BY agency, label, skipped, annotated_by
+    """)
+
+    rows = cur.fetchall()
 
     result = {}
     for r in rows:
@@ -359,7 +378,7 @@ def build_agency_excel(agency, agency_rows, ann_map, user_map):
 
 def check_and_complete_agency(agency, db):
     """Returns (just_completed, filename_or_None)"""
-    if db.execute("SELECT 1 FROM completed_agencies WHERE agency=?", (agency,)).fetchone():
+    if db.execute("SELECT 1 FROM completed_agencies WHERE agency=%s", (agency,)).fetchone():
         return False, None   # already done
 
     total_needed = len(get_agency_rows(agency))
@@ -367,7 +386,7 @@ def check_and_complete_agency(agency, db):
         return False, None
 
     ann_count = db.execute(
-        "SELECT COUNT(*) FROM annotations WHERE agency=?", (agency,)
+        "SELECT COUNT(*) FROM annotations WHERE agency=%s", (agency,)
     ).fetchone()[0]
 
     if ann_count < total_needed:
@@ -375,14 +394,14 @@ def check_and_complete_agency(agency, db):
 
     # 🎉 Just finished this agency
     ann_map  = {r["row_id"]: dict(r) for r in
-                db.execute("SELECT * FROM annotations WHERE agency=?", (agency,)).fetchall()}
+                db.execute("SELECT * FROM annotations WHERE agency=%s", (agency,)).fetchall()}
     user_map = {u["id"]: u["name"] for u in USERS}
     try:
         filepath, filename = build_agency_excel(
             agency, get_agency_rows(agency), ann_map, user_map)
         db.execute(
             "INSERT INTO completed_agencies (agency,completed_at,excel_path,total_rows) "
-            "VALUES (?,?,?,?)",
+            "VALUES (%s,%s,%s,%s)",
             (agency, datetime.datetime.utcnow().isoformat(), filepath, total_needed))
         db.commit()
         return True, filename
@@ -412,6 +431,9 @@ def api_users():
 @app.route("/api/agencies")
 def api_agencies():
     print("[API] /api/agencies called")
+
+    user = request.args.get("user")
+
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -432,9 +454,14 @@ def api_agencies():
 
     ann_counts = {r["agency"]: r["annotated"] for r in cur.fetchall()}
 
+    allowed_agencies = USER_ASSIGNMENTS.get(user, []) if user else []
+
     result = []
 
     for row in agencies:
+
+        if user and row["agency"] not in allowed_agencies:
+            continue
 
         annotated = ann_counts.get(row["agency"], 0)
 
@@ -450,8 +477,7 @@ def api_agencies():
     conn.close()
 
     return jsonify(result)
-# ── Per-agency images  (fetched only when user clicks an agency)
-# Returns only the rows for one agency — typically 150–200 rows.
+
 @app.route("/api/images/<path:agency>")
 def api_images_for_agency(agency):
 
@@ -523,20 +549,19 @@ def api_annotate():
         consumer_id,
         agency,
         img_url,
-        annotation_label,
-        annotation_notes,
+        label,
+        notes,
         skipped,
-        annotated_by,
-        annotated_at
+        annotated_by
     )
-    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
     ON CONFLICT (row_id)
     DO UPDATE SET
-        annotation_label = EXCLUDED.annotation_label,
-        annotation_notes = EXCLUDED.annotation_notes,
+        label = EXCLUDED.label,
+        notes = EXCLUDED.notes,
         skipped = EXCLUDED.skipped,
         annotated_by = EXCLUDED.annotated_by,
-        annotated_at = NOW()
+        created_at = NOW()
     """, (
         data.get("row_id"),
         data.get("consumer_id"),
@@ -553,7 +578,7 @@ def api_annotate():
     cur.close()
     conn.close()
 
-    return jsonify({"ok": True})
+    return jsonify({"ok": True ,"agency_completed": False})
 
 
 
@@ -575,10 +600,16 @@ def api_download_export(filename):
 @gzip_response
 def api_completed_agencies():
     db   = get_db()
-    rows = db.execute(
-        "SELECT agency,completed_at,excel_path,total_rows "
-        "FROM completed_agencies ORDER BY completed_at DESC"
-    ).fetchall()
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+    SELECT agency, completed_at, excel_path, total_rows
+    FROM completed_agencies
+    ORDER BY completed_at DESC
+    """)
+
+    rows = cur.fetchall()
     result = []
     for r in rows:
         fname = os.path.basename(r["excel_path"]) if r["excel_path"] else None
@@ -599,13 +630,13 @@ def api_regenerate_excel(agency):
         return jsonify({"error":"Agency not found"}), 404
     db      = get_db()
     ann_map = {r["row_id"]: dict(r) for r in
-               db.execute("SELECT * FROM annotations WHERE agency=?", (agency,)).fetchall()}
+               db.execute("SELECT * FROM annotations WHERE agency=%s", (agency,)).fetchall()}
     try:
         filepath, filename = build_agency_excel(
             agency, agency_rows, ann_map, {u["id"]:u["name"] for u in USERS})
         db.execute(
             "INSERT OR REPLACE INTO completed_agencies (agency,completed_at,excel_path,total_rows)"
-            " VALUES (?,?,?,?)",
+            "VALUES (%s,%s,%s,%s)",
             (agency, datetime.datetime.utcnow().isoformat(), filepath, len(agency_rows)))
         db.commit()
         return jsonify({"ok":True, "excel_url":f"/api/exports/{filename}", "excel_name":filename})
@@ -616,17 +647,36 @@ def api_regenerate_excel(agency):
 @app.route("/api/annotations")
 @gzip_response
 def api_annotations():
-    agency = request.args.get("agency")
-    user   = request.args.get("user")
-    limit  = int(request.args.get("limit", 500))
-    db     = get_db()
-    q, params = "SELECT * FROM annotations WHERE 1=1", []
-    if agency: q += " AND agency=?";       params.append(agency)
-    if user:   q += " AND annotated_by=?"; params.append(user)
-    q += " ORDER BY updated_at DESC LIMIT ?"
-    params.append(limit)
-    return jsonify([dict(r) for r in db.execute(q, params).fetchall()])
 
+    agency = request.args.get("agency")
+    user = request.args.get("user")
+    limit = int(request.args.get("limit", 500))
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    q = "SELECT * FROM annotations WHERE 1=1"
+    params = []
+
+    if agency:
+        q += " AND agency=%s"
+        params.append(agency)
+
+    if user:
+        q += " AND annotated_by=%s"
+        params.append(user)
+
+    q += " ORDER BY created_at DESC LIMIT %s"
+    params.append(limit)
+
+    cur.execute(q, params)
+
+    rows = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return jsonify(rows)
 # ── Dashboard summary (per-user stats)
 @app.route("/api/dashboard")
 def api_dashboard():
@@ -634,66 +684,119 @@ def api_dashboard():
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
+    # total images
+    cur.execute("SELECT COUNT(*) FROM meter_images")
+    total_images = cur.fetchone()["count"]
+
+    # total agencies
+    cur.execute("SELECT COUNT(DISTINCT agency) FROM meter_images")
+    total_agencies = cur.fetchone()["count"]
+
+    # total annotated
+    cur.execute("SELECT COUNT(*) FROM annotations")
+    total_annotated = cur.fetchone()["count"]
+
+    # completed agencies
+    cur.execute("SELECT COUNT(*) FROM completed_agencies")
+    completed_agencies = cur.fetchone()["count"]
+
+    # user stats
     cur.execute("""
-        SELECT annotated_by, COUNT(*) as total
+        SELECT
+            annotated_by,
+            COUNT(*) as total_annotations
         FROM annotations
         GROUP BY annotated_by
     """)
 
     rows = cur.fetchall()
 
-    user_map = {u["id"]: u for u in USERS}
-
-    result = []
+    users = []
 
     for r in rows:
 
         uid = r["annotated_by"]
 
-        if uid in user_map:
+        user = next((u for u in USERS if u["id"] == uid), None)
+        if not user:
+            continue
 
-            result.append({
-                "id": uid,
-                "name": user_map[uid]["name"],
-                "total_annotations": r["total"]
-            })
+        users.append({
+            "id": uid,
+            "name": user["name"],
+            "color": user["color"],
+            "total_annotations": r["total_annotations"],
+            "agencies_touched": 0,
+            "agencies_list": [],
+            "labels": {}
+        })
 
     cur.close()
     conn.close()
 
-    return jsonify(result)
-# ── Full CSV export
+    return jsonify({
+        "global": {
+            "total_images": total_images,
+            "total_annotated": total_annotated,
+            "total_agencies": total_agencies,
+            "completed_agencies": completed_agencies
+        },
+        "users": users
+    })
+
 @app.route("/api/export/csv")
 def api_export_csv():
+
     import io, csv
-    rows    = load_and_sample()
-    db      = get_db()
-    ann_map = {r["row_id"]: dict(r) for r in
-               db.execute("SELECT * FROM annotations").fetchall()}
-    out     = io.StringIO()
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+        SELECT 
+            m.agency,
+            m.consumer_id,
+            m.actual_reading,
+            m.ai_meter_reading,
+            m.confidence_score,
+            m.img_url,
+            a.label,
+            a.notes,
+            a.skipped,
+            a.annotated_by,
+            a.created_at
+        FROM meter_images m
+        LEFT JOIN annotations a
+        ON m.row_id = a.row_id
+        ORDER BY m.agency
+    """)
+
+    rows = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    out = io.StringIO()
+
     if not rows:
         return Response("", mimetype="text/csv")
-    src_keys   = [k for k in rows[0].keys() if not k.startswith("_") and k != "row_id"]
-    extra_keys = ["annotation_label","annotation_notes","skipped",
-                  "annotated_by","annotated_at","row_id"]
-    writer = csv.DictWriter(out, fieldnames=src_keys+extra_keys, extrasaction="ignore")
-    writer.writeheader()
-    for row in rows:
-        ann = ann_map.get(row["row_id"], {})
-        r2  = {k: row.get(k,"") for k in src_keys}
-        r2.update({"annotation_label": ann.get("label",""),
-                   "annotation_notes": ann.get("notes",""),
-                   "skipped":          "yes" if ann.get("skipped") else "no",
-                   "annotated_by":     ann.get("annotated_by",""),
-                   "annotated_at":     ann.get("updated_at",""),
-                   "row_id":           row["row_id"]})
-        writer.writerow(r2)
-    fname = f"export_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
-    return Response(out.getvalue(), mimetype="text/csv",
-                    headers={"Content-Disposition": f"attachment; filename={fname}"})
 
+    writer = csv.DictWriter(out, fieldnames=rows[0].keys())
+    writer.writeheader()
+
+    for r in rows:
+        writer.writerow(r)
+
+    fname = f"annotations_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+
+    return Response(
+        out.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={fname}"}
+    ) 
 # ─── STARTUP ──────────────────────────────────────────────
 if __name__ == "__main__":
     init_db()
+    assign_agencies_to_users()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

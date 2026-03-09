@@ -460,7 +460,7 @@ function renderUserPicker(){
 
   // fill in stats async
   fetchJSON('/api/dashboard').then(d=>{
-    d.users.forEach(ud=>{
+    d.forEach(ud=>{
       const el=document.getElementById('pick-stats-'+ud.id);
       if(el) el.textContent=`${ud.total_annotations} labeled · ${ud.agencies_touched} agencies`;
     });
@@ -782,14 +782,14 @@ async function pushAnnotation(row,showMsg=true){
   localAnn[row.row_id].notes=notes;
   const ann=localAnn[row.row_id];
 
-  const resp=await postAnnotation({
+  const resp = await postAnnotation({
     row_id:       row.row_id,
-    agency:       row.agency,
-    consumer_id:  row.consumer_id||'',
+    agency:       row.agency || selectedAgency,
+    consumer_id:  row.consumer_id || '',
     img_url:      getUrl(row),
-    label:        ann.label||'',
-    notes:        ann.notes||'',
-    skipped:      ann.skipped||false,
+    label:        ann.label || '',
+    notes:        ann.notes || '',
+    skipped:      ann.skipped || false,
     annotated_by: currentUser.id
   });
   if(!resp) return false;
@@ -829,29 +829,39 @@ function skipCurrent(){
 
 // ─── HEADER PROGRESS ──────────────────────────
 function updateHeaderProgress(){
-  const done=Object.values(localAnn).filter(a=>a.label||a.skipped).length;
-  setText('hp-done',done);
+
+  const total = agencyMeta.reduce((s,a)=>s+a.total,0);
+
+  const done = agencyMeta.reduce((s,a)=>s+a.annotated,0);
+
+  setText('hp-total', total);
+  setText('hp-done', done);
 }
 
 function updateAgencyMeta(agency){
-  const meta=agencyMeta.find(a=>a.agency===agency); 
+
+  const meta = agencyMeta.find(a=>a.agency===agency);
   if(!meta) return;
 
-  const agRows=rowCache.get(agency) || [];
+  const agRows = rowCache.get(agency) || [];
 
-  let annotated=0;
-  agRows.forEach(r=>{
-    const a=localAnn[r.row_id];
+  let annotated = 0;
+
+  for(const r of agRows){
+    const a = localAnn[r.row_id];
     if(a && (a.label || a.skipped)) annotated++;
-  });
+  }
 
-  meta.annotated=annotated;
-  meta.pending=meta.total-annotated;
+  meta.annotated = annotated;
+  meta.pending   = meta.total - annotated;
+  meta.completed = annotated >= meta.total;
 
   setText('current-agency-label',`${agency} · ${annotated}/${meta.total} done`);
+
+  updateHeaderProgress();
+
   renderAgencySidebar(document.getElementById('agency-filter').value);
 }
-
 // ─── CUSTOM OPTIONS ───────────────────────────
 function addCustomOption(){
   const inp=document.getElementById('new-option-input');
@@ -863,7 +873,10 @@ function addCustomOption(){
 
 // ─── EXPORT ───────────────────────────────────
 function exportCSV(){ window.open(SERVER+'/api/export/csv','_blank'); }
-
+document.getElementById('notes-field').addEventListener('blur',()=>{
+  const row=filteredRows[currentIdx];
+  if(row) pushAnnotation(row,false);
+});
 // ─── NAV EVENTS ───────────────────────────────
 document.getElementById('btn-prev').addEventListener('click',()=>{ if(currentIdx>0){currentIdx--;renderAll();} });
 document.getElementById('btn-next').addEventListener('click',()=>{ if(currentIdx<filteredRows.length-1){currentIdx++;renderAll();} });
