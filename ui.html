@@ -784,7 +784,7 @@ async function pushAnnotation(row,showMsg=true){
 
   const resp=await postAnnotation({
     row_id:       row.row_id,
-    agency:       row._agency,
+    agency:       row.agency,
     consumer_id:  row.consumer_id||'',
     img_url:      getUrl(row),
     label:        ann.label||'',
@@ -794,13 +794,13 @@ async function pushAnnotation(row,showMsg=true){
   });
   if(!resp) return false;
 
-  updateAgencyMeta(row._agency);
+  updateAgencyMeta(row.agency);
   updateHeaderProgress();
   if(showMsg) showToast('Saved ✓');
 
   // ── Agency just completed? ──
   if(resp.agency_completed && resp.excel_url){
-    showCompletionModal(row._agency, resp.excel_url, resp.excel_filename);
+    showCompletionModal(row.agency, resp.excel_url, resp.excel_filename);
   }
   return true;
 }

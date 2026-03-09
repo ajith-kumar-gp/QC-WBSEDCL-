@@ -30,6 +30,16 @@ import datetime
 from flask import Flask, jsonify, request, send_from_directory, send_file, Response
 import pandas as pd
 import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+DB_CONFIG = {
+    "host": "wbpdclmaster.c07osc0km7kz.us-east-1.rds.amazonaws.com",
+    "port": 5432,
+    "database": "wbpdcl",
+    "user": "postgres",
+    "password": "Sujanix#123",
+}
 
 # ─────────────────────────────────────────────────────────
 #  CONFIG  —  edit these
@@ -75,54 +85,46 @@ def gzip_response(f):
 # Each request gets its own connection (thread-safe).
 
 def get_db():
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")   # write-ahead logging
-    conn.execute("PRAGMA synchronous=NORMAL") # fast but safe
-    conn.execute("PRAGMA cache_size=-32000")  # 32 MB page cache
-    conn.execute("PRAGMA temp_store=MEMORY")
+    conn = psycopg2.connect(**DB_CONFIG)
     return conn
 
 def init_db():
-    with get_db() as db:
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS annotations (
-                row_id       TEXT PRIMARY KEY,
-                agency       TEXT NOT NULL,
-                consumer_id  TEXT,
-                img_url      TEXT,
-                label        TEXT DEFAULT '',
-                notes        TEXT DEFAULT '',
-                skipped      INTEGER DEFAULT 0,
-                annotated_by TEXT DEFAULT '',
-                created_at   TEXT,
-                updated_at   TEXT
-            )
-        """)
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS completed_agencies (
-                agency       TEXT PRIMARY KEY,
-                completed_at TEXT,
-                excel_path   TEXT,
-                total_rows   INTEGER
-            )
-        """)
-        # Indexes — critical for speed on 64k rows
-        db.execute("CREATE INDEX IF NOT EXISTS idx_ann_agency       ON annotations(agency)")
-        db.execute("CREATE INDEX IF NOT EXISTS idx_ann_by           ON annotations(annotated_by)")
-        db.execute("CREATE INDEX IF NOT EXISTS idx_ann_updated      ON annotations(updated_at DESC)")
-        db.execute("CREATE INDEX IF NOT EXISTS idx_ann_agency_label ON annotations(agency, label)")
 
-        # Safe migrations for older databases
-        for col, definition in [("annotated_by", "TEXT DEFAULT ''"),
-                                 ("notes",        "TEXT DEFAULT ''")]:
-            try:
-                db.execute(f"ALTER TABLE annotations ADD COLUMN {col} {definition}")
-            except Exception:
-                pass
-        db.commit()
-    print("[db] Initialized with WAL mode + indexes")
+    conn = get_db()
+    cur = conn.cursor()
 
+    # annotations table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS annotations (
+            id SERIAL PRIMARY KEY,
+            row_id TEXT,
+            agency TEXT,
+            consumer_id TEXT,
+            img_url TEXT,
+            label TEXT,
+            notes TEXT,
+            skipped BOOLEAN DEFAULT FALSE,
+            annotated_by TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+
+    # completed agencies table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS completed_agencies (
+            agency TEXT PRIMARY KEY,
+            completed_at TIMESTAMP,
+            excel_path TEXT,
+            total_rows INTEGER
+        )
+    """)
+
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+    print("[db] PostgreSQL tables ready")
 # ─── DATA LOADING ─────────────────────────────────────────
 # Loaded once at startup, stays in memory for the server's lifetime.
 # On restart the same rows are produced (RANDOM_SEED is fixed).
@@ -405,58 +407,94 @@ def api_users():
 # ── Agency list  (lightweight — no row data, just names + counts)
 # This is what the UI fetches on boot. Tiny payload.
 @app.route("/api/agencies")
-@gzip_response
 def api_agencies():
-    load_and_sample()   # ensure cache is warm
-    db    = get_db()
-    stats = get_agency_stats(db)
-    completed_set = {r["agency"] for r in
-                     db.execute("SELECT agency FROM completed_agencies").fetchall()}
+    print("[API] /api/agencies called")
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+        SELECT agency, COUNT(*) as total
+        FROM meter_images
+        GROUP BY agency
+        ORDER BY agency
+    """)
+
+    agencies = cur.fetchall()
+
+    cur.execute("""
+        SELECT agency, COUNT(*) as annotated
+        FROM annotations
+        GROUP BY agency
+    """)
+
+    ann_counts = {r["agency"]: r["annotated"] for r in cur.fetchall()}
 
     result = []
-    user = request.args.get("user")
 
-    if user and user in USER_ASSIGNMENTS:
-        agencies = USER_ASSIGNMENTS[user]
-    else:
-        agencies = _agency_names
+    for row in agencies:
 
-    for ag in agencies:
-        total = len(_agency_index[ag])
-        s     = stats.get(ag, {"annotated":0, "by_user":{}, "labels":{}})
+        annotated = ann_counts.get(row["agency"], 0)
+
         result.append({
-            "agency":    ag,
-            "total":     total,
-            "annotated": s["annotated"],
-            "pending":   total - s["annotated"],
-            "by_user":   s["by_user"],
-            "labels":    s["labels"],
-            "completed": ag in completed_set,
+            "agency": row["agency"],
+            "total": row["total"],
+            "annotated": annotated,
+            "pending": row["total"] - annotated,
+            "completed": annotated >= row["total"]
         })
-    return jsonify(result)
 
+    cur.close()
+    conn.close()
+
+    return jsonify(result)
 # ── Per-agency images  (fetched only when user clicks an agency)
 # Returns only the rows for one agency — typically 150–200 rows.
 @app.route("/api/images/<path:agency>")
-@gzip_response
 def api_images_for_agency(agency):
-    rows = get_agency_rows(agency)
-    if not rows:
-        return jsonify([])
-    # Merge saved annotations so the UI can restore state
-    db      = get_db()
-    ann_map = {r["row_id"]: dict(r) for r in
-               db.execute("SELECT * FROM annotations WHERE agency=?", (agency,)).fetchall()}
-    result  = []
-    for row in rows:
-        d   = {k: v for k, v in row.items() if not k.startswith("_")}
-        ann = ann_map.get(row["row_id"], {})
-        d["_saved_label"]   = ann.get("label","")
-        d["_saved_notes"]   = ann.get("notes","")
-        d["_saved_skipped"] = bool(ann.get("skipped"))
-        result.append(d)
-    return jsonify(result)
 
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+        SELECT
+            row_id,
+            consumer_id,
+            actual_reading,
+            ai_meter_reading,
+            confidence_score,
+            img_url,
+            agency
+        FROM meter_images
+        WHERE agency=%s
+        LIMIT 150
+    """, (agency,))
+
+    rows = cur.fetchall()
+
+    cur.execute("""
+        SELECT row_id,label,notes,skipped
+        FROM annotations
+        WHERE agency=%s
+    """, (agency,))
+
+    annotations = {r["row_id"]: r for r in cur.fetchall()}
+
+    result = []
+
+    for r in rows:
+
+        ann = annotations.get(r["row_id"], {})
+
+        r["_saved_label"] = ann.get("label", "")
+        r["_saved_notes"] = ann.get("notes", "")
+        r["_saved_skipped"] = ann.get("skipped", False)
+
+        result.append(r)
+
+    cur.close()
+    conn.close()
+
+    return jsonify(result)
 # ── Kept for backward-compat / bulk export  (not used by UI boot)
 @app.route("/api/images")
 @gzip_response
@@ -470,43 +508,56 @@ def api_images_all():
 # ── Save annotation
 @app.route("/api/annotate", methods=["POST"])
 def api_annotate():
-    data   = request.get_json(force=True)
-    row_id = data.get("row_id")
-    if not row_id:
-        return jsonify({"error": "row_id required"}), 400
+    print("[server] Annotation received")
+    data = request.get_json()
 
-    agency = data.get("agency","")
-    now    = datetime.datetime.utcnow().isoformat()
+    conn = get_db()
+    cur = conn.cursor()
 
-    with get_db() as db:
-        if db.execute("SELECT 1 FROM annotations WHERE row_id=?", (row_id,)).fetchone():
-            db.execute(
-                "UPDATE annotations "
-                "SET label=?,notes=?,skipped=?,annotated_by=?,updated_at=? "
-                "WHERE row_id=?",
-                (data.get("label",""), data.get("notes",""),
-                 1 if data.get("skipped") else 0,
-                 data.get("annotated_by",""), now, row_id))
-        else:
-            db.execute(
-                "INSERT INTO annotations "
-                "(row_id,agency,consumer_id,img_url,label,notes,skipped,annotated_by,created_at,updated_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (row_id, agency, data.get("consumer_id",""),
-                 data.get("img_url",""), data.get("label",""), data.get("notes",""),
-                 1 if data.get("skipped") else 0,
-                 data.get("annotated_by",""), now, now))
-        db.commit()
-        just_completed, excel_filename = check_and_complete_agency(agency, db)
+    cur.execute("""
+    INSERT INTO annotations (
+        row_id,
+        consumer_id,
+        agency,
+        img_url,
+        annotation_label,
+        annotation_notes,
+        skipped,
+        annotated_by,
+        annotated_at
+    )
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+    ON CONFLICT (row_id)
+    DO UPDATE SET
+        annotation_label = EXCLUDED.annotation_label,
+        annotation_notes = EXCLUDED.annotation_notes,
+        skipped = EXCLUDED.skipped,
+        annotated_by = EXCLUDED.annotated_by,
+        annotated_at = NOW()
+    """, (
+        data.get("row_id"),
+        data.get("consumer_id"),
+        data.get("agency"),
+        data.get("img_url"),
+        data.get("label"),
+        data.get("notes"),
+        data.get("skipped"),
+        data.get("annotated_by")
+    ))
 
-    resp = {"ok": True, "row_id": row_id, "updated_at": now}
-    if just_completed:
-        resp.update({"agency_completed": True,
-                     "excel_filename":   excel_filename,
-                     "excel_url":        f"/api/exports/{excel_filename}"})
-    return jsonify(resp)
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
 
 # ── Download completed Excel
+
+
+
 @app.route("/api/exports/<filename>")
 def api_download_export(filename):
     safe = os.path.basename(filename)
@@ -575,55 +626,39 @@ def api_annotations():
 
 # ── Dashboard summary (per-user stats)
 @app.route("/api/dashboard")
-@gzip_response
 def api_dashboard():
-    load_and_sample()
-    db             = get_db()
-    total_agencies = len(_agency_names)
 
-    user_data = {u["id"]: {**u, "total":0, "agencies":set(), "labels":{}, "recent":[]}
-                 for u in USERS}
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
 
-    for r in db.execute(
-        "SELECT annotated_by,agency,label,skipped,updated_at "
-        "FROM annotations ORDER BY updated_at DESC"
-    ).fetchall():
-        uid = r["annotated_by"] or "unknown"
-        if uid not in user_data:
-            continue
-        ud = user_data[uid]
-        ud["total"] += 1
-        ud["agencies"].add(r["agency"])
-        lbl = "skipped" if r["skipped"] else (r["label"] or "unlabeled")
-        ud["labels"][lbl] = ud["labels"].get(lbl, 0) + 1
-        if len(ud["recent"]) < 8:
-            ud["recent"].append({"agency":r["agency"],"label":lbl,"at":r["updated_at"]})
+    cur.execute("""
+        SELECT annotated_by, COUNT(*) as total
+        FROM annotations
+        GROUP BY annotated_by
+    """)
 
-    completed_count = db.execute(
-        "SELECT COUNT(*) FROM completed_agencies"
-    ).fetchone()[0]
-    total_annotated = db.execute(
-        "SELECT COUNT(*) FROM annotations"
-    ).fetchone()[0]
+    rows = cur.fetchall()
 
-    result = [{"id":ud["id"],"name":ud["name"],"color":ud["color"],
-               "total_annotations":ud["total"],
-               "agencies_touched":len(ud["agencies"]),
-               "agencies_list":sorted(ud["agencies"]),
-               "labels":ud["labels"],"recent":ud["recent"]}
-              for ud in user_data.values()]
-    result.sort(key=lambda x: x["total_annotations"], reverse=True)
+    user_map = {u["id"]: u for u in USERS}
 
-    return jsonify({
-        "users": result,
-        "global": {
-            "total_images":       _total_rows,
-            "total_agencies":     total_agencies,
-            "completed_agencies": completed_count,
-            "total_annotated":    total_annotated,
-        }
-    })
+    result = []
 
+    for r in rows:
+
+        uid = r["annotated_by"]
+
+        if uid in user_map:
+
+            result.append({
+                "id": uid,
+                "name": user_map[uid]["name"],
+                "total_annotations": r["total"]
+            })
+
+    cur.close()
+    conn.close()
+
+    return jsonify(result)
 # ── Full CSV export
 @app.route("/api/export/csv")
 def api_export_csv():
@@ -657,16 +692,5 @@ def api_export_csv():
 # ─── STARTUP ──────────────────────────────────────────────
 if __name__ == "__main__":
     init_db()
-    try:
-        load_and_sample()
-        assign_agencies_to_users()
-    except Exception as e:
-        print(f"\n[ERROR] {e}")
-        print("Fix DATA_FILE / AGENCY_COLUMN at the top of server.py and retry.\n")
-        raise SystemExit(1)
-    print(f"\n  Annotator  →  http://localhost:{PORT}")
-    print(f"  Dashboard  →  http://localhost:{PORT}/dashboard")
-    print(f"  Exports    →  ./{EXPORTS_DIR}/\n")
-    # threaded=True: each request gets its own thread → concurrent users work fine
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
