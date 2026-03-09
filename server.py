@@ -430,6 +430,7 @@ def api_users():
 # This is what the UI fetches on boot. Tiny payload.
 @app.route("/api/agencies")
 def api_agencies():
+
     print("[API] /api/agencies called")
 
     user = request.args.get("user")
@@ -454,7 +455,14 @@ def api_agencies():
 
     ann_counts = {r["agency"]: r["annotated"] for r in cur.fetchall()}
 
-    allowed_agencies = USER_ASSIGNMENTS.get(user, []) if user else []
+    users = [u["id"] for u in USERS]
+
+    allowed_agencies = []
+
+    if user:
+        for i, ag in enumerate(agencies):
+            if users[i % len(users)] == user:
+                allowed_agencies.append(ag["agency"])
 
     result = []
 
@@ -477,7 +485,6 @@ def api_agencies():
     conn.close()
 
     return jsonify(result)
-
 @app.route("/api/images/<path:agency>")
 def api_images_for_agency(agency):
 
@@ -797,6 +804,6 @@ def api_export_csv():
 # ─── STARTUP ──────────────────────────────────────────────
 if __name__ == "__main__":
     init_db()
-    assign_agencies_to_users()
+    # assign_agencies_to_users()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
